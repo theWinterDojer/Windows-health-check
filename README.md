@@ -1,3 +1,5 @@
+![Banner](https://github.com/theWinterDojer/Windows-health-check/blob/main/public/banner.png?raw=true)
+
 # Windows Health Check Tool
 
 **Latest Release**: [Download Latest Version](https://github.com/theWinterDojer/windows-health-check/releases/latest)
@@ -70,10 +72,3 @@ windows-health-check/
 ## License
 
 MIT License - See LICENSE file for details.
-
-## Troubleshooting
-
-- **UAC Issues**: Ensure administrator privileges
-- **Icon Missing**: Rebuild executable after path fixes
-- **Process Timeout**: Adjust timeout values in commands.py
-- **Antivirus Flags**: False positive due to subprocess execution
