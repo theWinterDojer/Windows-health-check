@@ -320,7 +320,7 @@ class ToolSelectorPanel:
             fg_color="transparent",
             corner_radius=0
         )
-        tools_grid.pack(pady=(5, 15), padx=15, fill="x")
+        tools_grid.pack(pady=(12, 15), padx=15, fill="x")
         
         # Create tool buttons in grid (2 columns)
         for i, (exe_name, tool_name, command) in enumerate(system_tools):

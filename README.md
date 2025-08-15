@@ -29,6 +29,8 @@ python main.py
 - **DISM Restore Health**: Automatic corruption repair (prompted when needed)
 - **System File Checker (SFC)**: System file verification and repair
 - **Check Disk (CHKDSK)**: File system error detection and repair
+- **Windows System Tools**: Direct access to Event Viewer, Resource Monitor, System Information, Memory Diagnostic, and Reliability History with native icons
+- **Real-time System Monitoring**: Live CPU and RAM usage updates every 2 seconds
 - **Real-time Output**: Live command execution with progress tracking
 - **Smart Prompting**: Conditional repair dialogs based on diagnostic results
 

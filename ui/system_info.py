@@ -83,7 +83,7 @@ class SystemInfoPanel:
             text_color="#000000",
             fg_color="transparent"
         )
-        title_label.pack(pady=(10, 15))
+        title_label.pack(pady=(10, 8))
         
         # Create info text
         info_text = self._format_system_info()
