@@ -45,12 +45,18 @@ class HealthCheckApp:
         self.current_tool_progress = 0.0
         self.stop_progress_simulation = False
         
+        # System info update timer
+        self.system_info_timer = None
+        
         # Welcome message
         self.window.append_separator()
         self.window.append_output("Windows Health Check Tool - Ready", "#00ffff")
         self.window.append_output("Administrator privileges: ✓ ACTIVE", "#00ff00")
         self.window.append_separator()
         self.window.append_output("")
+        
+        # Start system info updates
+        self.start_system_info_updates()
     
     def output_callback(self, line: str):
         """Callback function for command output"""
@@ -105,6 +111,21 @@ class HealthCheckApp:
         if tools_total > 0:
             self.base_progress = self.completed_tools / tools_total
             self.current_tool_progress = 0.0
+    
+    def start_system_info_updates(self):
+        """Start periodic system info updates every 2 seconds"""
+        def update_info():
+            self.window.system_info.refresh()
+            # Schedule next update in 2 seconds
+            self.system_info_timer = self.window.root.after(2000, update_info)
+        
+        update_info()
+    
+    def stop_system_info_updates(self):
+        """Stop system info updates"""
+        if self.system_info_timer:
+            self.window.root.after_cancel(self.system_info_timer)
+            self.system_info_timer = None
     
     def prompt_user(self, title: str, message: str) -> bool:
         """Show user prompt dialog and return True/False based on user choice"""

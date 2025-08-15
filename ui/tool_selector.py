@@ -4,7 +4,14 @@ Provides checkboxes for selecting Windows maintenance tools
 """
 
 import customtkinter as ctk
+import tkinter as tk
+from tkinter import PhotoImage
+import subprocess
+import os
+import sys
 from typing import Dict, List, Callable
+from PIL import Image, ImageTk
+import tempfile
 
 
 class ToolSelectorPanel:
@@ -107,7 +114,27 @@ class ToolSelectorPanel:
             hover_color="#006060",
             font=ctk.CTkFont(family="MS Sans Serif", size=12, weight="bold")
         )
-        self.run_button.pack(pady=(20, 15))
+        self.run_button.pack(pady=(5, 8))
+        
+        # Reliability History button
+        reliability_btn = ctk.CTkButton(
+            self.frame,
+            text="View Reliability History",
+            command=self._open_reliability_history,
+            width=220,
+            height=30,
+            corner_radius=0,
+            fg_color="#800080",  # Purple - retro Windows color
+            text_color="#ffffff",
+            border_color="#400040",
+            border_width=2,
+            hover_color="#600060",
+            font=ctk.CTkFont(family="MS Sans Serif", size=11)
+        )
+        reliability_btn.pack(pady=(3, 8))
+        
+        # System Tools section
+        self._create_system_tools_section()
         
         # Initialize with recommended defaults
         self.set_defaults()
@@ -212,6 +239,185 @@ class ToolSelectorPanel:
             self._update_run_button()
         else:
             self.run_button.configure(state="disabled")
+    
+    def _extract_icon_from_exe(self, exe_path: str, size: int = 32) -> tk.PhotoImage:
+        """Extract icon from Windows executable"""
+        try:
+            # Try to extract icon using Windows API
+            import win32gui
+            import win32ui
+            import win32con
+            import win32api
+            
+            # Get the icon handle from the executable
+            large, small = win32gui.ExtractIconEx(exe_path, 0)
+            if small:
+                icon_handle = small[0]
+            elif large:
+                icon_handle = large[0]
+            else:
+                return None
+            
+            # Convert to bitmap
+            hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
+            hbmp = win32ui.CreateBitmap()
+            hbmp.CreateCompatibleBitmap(hdc, size, size)
+            hdc = hdc.CreateCompatibleDC()
+            hdc.SelectObject(hbmp)
+            hdc.FillSolidRect((0, 0, size, size), 0xffffff)
+            
+            # Draw the icon
+            win32gui.DrawIconEx(hdc.GetHandleOutput(), 0, 0, icon_handle, size, size, 0, None, win32con.DI_NORMAL)
+            
+            # Convert to PIL Image
+            bmpstr = hbmp.GetBitmapBits(True)
+            img = Image.frombuffer('RGB', (size, size), bmpstr, 'raw', 'BGRX', 0, 1)
+            
+            # Convert to PhotoImage
+            return ImageTk.PhotoImage(img)
+            
+        except Exception:
+            # Fallback: return None if icon extraction fails
+            return None
+    
+    def _find_exe_path(self, exe_name: str) -> str:
+        """Find full path to Windows executable"""
+        try:
+            # Try system32 first
+            system32_path = os.path.join(os.environ.get('SYSTEMROOT', 'C:\\Windows'), 'System32', exe_name)
+            if os.path.exists(system32_path):
+                return system32_path
+            
+            # Try windows directory
+            windows_path = os.path.join(os.environ.get('SYSTEMROOT', 'C:\\Windows'), exe_name)
+            if os.path.exists(windows_path):
+                return windows_path
+            
+            # Try PATH
+            import shutil
+            path = shutil.which(exe_name)
+            if path:
+                return path
+                
+        except Exception:
+            pass
+        
+        return exe_name  # Return original if not found
+    
+    def _create_system_tools_section(self):
+        """Create system tools section with icon buttons"""        
+        # Tools data (removed Performance Monitor)
+        system_tools = [
+            ("eventvwr.exe", "Event\nViewer", self._open_event_viewer),
+            ("resmon.exe", "Resource\nMonitor", self._open_resource_monitor),
+            ("msinfo32.exe", "System\nInfo", self._open_system_info),
+            ("mdsched.exe", "Memory\nDiagnostic", self._open_memory_diagnostic)
+        ]
+        
+        # Create grid container
+        tools_grid = ctk.CTkFrame(
+            self.frame,
+            fg_color="transparent",
+            corner_radius=0
+        )
+        tools_grid.pack(pady=(5, 15), padx=15, fill="x")
+        
+        # Create tool buttons in grid (2 columns)
+        for i, (exe_name, tool_name, command) in enumerate(system_tools):
+            row = i // 2
+            col = i % 2
+            
+            # Extract icon from executable
+            exe_path = self._find_exe_path(exe_name)
+            icon_image = self._extract_icon_from_exe(exe_path, 24)
+            
+            # Create tool button with icon
+            if icon_image:
+                # Create button with icon and text
+                tool_btn = tk.Button(
+                    tools_grid,
+                    text=tool_name,
+                    image=icon_image,
+                    compound=tk.TOP,
+                    command=command,
+                    width=85,
+                    height=55,
+                    bg="#d4d0c8",
+                    fg="#000000",
+                    relief=tk.RAISED,
+                    bd=1,
+                    font=("MS Sans Serif", 8),
+                    activebackground="#e4e0d8"
+                )
+                # Keep a reference to prevent garbage collection
+                tool_btn.image = icon_image
+            else:
+                # Fallback to text-only button
+                tool_btn = ctk.CTkButton(
+                    tools_grid,
+                    text=tool_name,
+                    command=command,
+                    width=85,
+                    height=45,
+                    corner_radius=0,
+                    fg_color="#d4d0c8",
+                    text_color="#000000",
+                    border_color="#808080",
+                    border_width=1,
+                    hover_color="#e4e0d8",
+                    font=ctk.CTkFont(family="MS Sans Serif", size=8)
+                )
+            
+            tool_btn.grid(row=row, column=col, padx=2, pady=2, sticky="ew")
+        
+        # Configure grid weights for equal spacing
+        tools_grid.grid_columnconfigure(0, weight=1)
+        tools_grid.grid_columnconfigure(1, weight=1)
+    
+    def _open_event_viewer(self):
+        """Open Event Viewer"""
+        try:
+            subprocess.run("eventvwr.exe", shell=True, check=False)
+        except Exception:
+            pass
+    
+    def _open_resource_monitor(self):
+        """Open Resource Monitor"""
+        try:
+            subprocess.run("resmon.exe", shell=True, check=False)
+        except Exception:
+            pass
+    
+    def _open_system_info(self):
+        """Open System Information"""
+        try:
+            subprocess.run("msinfo32.exe", shell=True, check=False)
+        except Exception:
+            pass
+    
+    def _open_memory_diagnostic(self):
+        """Open Windows Memory Diagnostic"""
+        try:
+            subprocess.run("mdsched.exe", shell=True, check=False)
+        except Exception:
+            pass
+    
+    def _open_reliability_history(self):
+        """Open Windows Reliability History"""
+        import subprocess
+        try:
+            # Open Reliability Monitor directly
+            subprocess.run("perfmon.exe /rel", shell=True, check=False)
+        except Exception as e:
+            # Fallback: try opening Control Panel path
+            try:
+                subprocess.run("control.exe /name Microsoft.ActionCenter /page pageReliabilityView", shell=True, check=False)
+            except Exception:
+                # Last resort: try direct executable
+                try:
+                    subprocess.run("ReliabilityMonitor.exe", shell=True, check=False)
+                except Exception:
+                    pass  # Silently fail if none work
     
     def pack(self, **kwargs):
         """Pack the frame"""

@@ -14,6 +14,11 @@ class SystemInfoPanel:
     
     def __init__(self, parent):
         self.parent = parent
+        self.info_label = None  # Will store reference to the info label
+        
+        # Initialize CPU monitoring (first call sets up measurement)
+        psutil.cpu_percent()
+        
         self.info_data = self._gather_system_info()
         
         # Create the main frame with retro styling
@@ -52,7 +57,7 @@ class SystemInfoPanel:
             
             # Get CPU information
             cpu_count = psutil.cpu_count()
-            cpu_percent = psutil.cpu_percent(interval=1)
+            cpu_percent = psutil.cpu_percent()  # Non-blocking after initialization
             
             return {
                 'os': os_info,
@@ -84,7 +89,7 @@ class SystemInfoPanel:
         info_text = self._format_system_info()
         
         # Info display with monospace font
-        info_label = ctk.CTkLabel(
+        self.info_label = ctk.CTkLabel(
             self.frame,
             text=info_text,
             font=ctk.CTkFont(family="Consolas", size=13),
@@ -92,7 +97,7 @@ class SystemInfoPanel:
             fg_color="transparent",
             justify="left"
         )
-        info_label.pack(pady=(5, 15), padx=15)
+        self.info_label.pack(pady=(5, 15), padx=15)
     
     def _format_system_info(self) -> str:
         """Format system information for display"""
@@ -122,7 +127,5 @@ class SystemInfoPanel:
         """Refresh system information"""
         self.info_data = self._gather_system_info()
         # Update the display
-        for widget in self.frame.winfo_children():
-            if isinstance(widget, ctk.CTkLabel) and "OS:" in widget.cget("text"):
-                widget.configure(text=self._format_system_info())
-                break
+        if self.info_label:
+            self.info_label.configure(text=self._format_system_info())
