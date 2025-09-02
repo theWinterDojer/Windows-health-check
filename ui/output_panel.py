@@ -123,7 +123,6 @@ class OutputPanel:
         auto_scroll_cb.pack(side="right")
         
         # Initialize with welcome message
-        self.append_output("Windows Health Check Tool - Ready")
         self.append_output("Select maintenance tools and click RUN to begin...")
         self.append_output("")
     

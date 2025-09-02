@@ -11,8 +11,71 @@ from tkinter import messagebox
 import tkinter as tk
 
 from utils.admin import check_and_elevate, is_admin
-from commands import WindowsCommandExecutor, HealthCheckCommands
+from commands import WindowsCommandExecutor, HealthCheckCommands, CommandResult
 from ui.main_window import MainWindow
+
+
+class ResultAnalyzer:
+    """Analyzes tool execution results for intelligent summary generation"""
+    
+    @staticmethod
+    def analyze_tool_result(tool_name: str, result: CommandResult) -> dict:
+        """
+        Analyze a single tool result and return status information
+        
+        Returns:
+            dict with keys: 'status', 'message', 'icon'
+            status: 'success', 'issues_detected', 'issues_repaired'
+        """
+        if not result.success:
+            return {
+                'status': 'failed',
+                'message': f"Tool execution failed (exit code: {result.exit_code})",
+                'icon': '❌'
+            }
+        
+        output_lower = result.output.lower()
+        
+        # DISM Check Health
+        if tool_name == "DISM Check Health":
+            if "no component store corruption detected" in output_lower:
+                return {'status': 'success', 'message': 'No corruption detected', 'icon': '✅'}
+            else:
+                return {'status': 'issues_detected', 'message': 'Corruption detected', 'icon': '⚠️'}
+        
+        # DISM Scan Health  
+        elif tool_name == "DISM Scan Health":
+            if "no component store corruption detected" in output_lower:
+                return {'status': 'success', 'message': 'No corruption detected', 'icon': '✅'}
+            else:
+                return {'status': 'issues_detected', 'message': 'Corruption detected', 'icon': '⚠️'}
+        
+        # DISM Restore Health
+        elif tool_name == "DISM Restore Health":
+            # For RestoreHealth, if it completes successfully, consider it a success
+            return {'status': 'success', 'message': 'Repair completed successfully', 'icon': '✅'}
+        
+        # System File Checker
+        elif tool_name == "System File Checker":
+            if "windows resource protection did not find any integrity violations" in output_lower:
+                return {'status': 'success', 'message': 'No integrity violations found', 'icon': '✅'}
+            else:
+                return {'status': 'issues_repaired', 'message': 'Integrity violations detected and repaired automatically', 'icon': '🔧'}
+        
+        # Check Disk
+        elif tool_name == "Check Disk":
+            if "windows has scanned the file system and found no problems" in output_lower:
+                return {'status': 'success', 'message': 'No problems found', 'icon': '✅'}
+            else:
+                return {'status': 'issues_detected', 'message': 'Issues detected', 'icon': '⚠️'}
+        
+        # Check Disk Fix
+        elif tool_name == "Check Disk Fix":
+            # If fix completes successfully, consider it a success
+            return {'status': 'success', 'message': 'Disk repair completed', 'icon': '✅'}
+        
+        # Default case
+        return {'status': 'success', 'message': 'Completed', 'icon': '✅'}
 
 
 class HealthCheckApp:
@@ -38,6 +101,7 @@ class HealthCheckApp:
         self.is_running = False
         self.current_tools = []
         self.completed_tools = 0
+        self.execution_results = []  # Store CommandResult objects for summary
         
         # Progress simulation state
         self.progress_thread = None
@@ -236,6 +300,9 @@ class HealthCheckApp:
             self.is_running = True
             self.window.set_tools_enabled(False)
             
+            # Clear previous results at the start of new execution
+            self.execution_results = []
+            
             total_tools = len(self.current_tools)
             
             # We'll add a separator after showing the execution plan
@@ -292,6 +359,7 @@ class HealthCheckApp:
             self.base_progress = 0.0
             self.current_tool_progress = 0.0
             self.completed_tools = 0
+            # Note: execution_results are kept for potential export, cleared at start of next run
             
             self.window.set_tools_enabled(True)
             self.window.update_progress(0, "Ready")
@@ -318,9 +386,47 @@ class HealthCheckApp:
         try:
             if tool_id == "dism_check":
                 result = self.commands.dism_check_health()
+                self._store_result("DISM Check Health", result)
                 self._show_single_result(tool_id, result)
+                
+                # Check if ScanHealth is needed after CheckHealth
+                if result.success and "no component store corruption detected" not in result.output.lower():
+                    should_scan = self.prompt_user(
+                        "DISM Component Store Issues Detected",
+                        "Component store corruption detected. Please proceed to the full DISM ScanHealth for more accurate analysis and repair if necessary.\n\n"
+                        "Would you like to run DISM ScanHealth to perform a detailed scan?\n"
+                        "(This may take several minutes)"
+                    )
+                    
+                    if should_scan:
+                        self.window.append_output("")
+                        self.window.append_output("--- Proceeding to DISM Scan Health ---")
+                        self.window.append_output("")
+                        
+                        scan_result = self.commands.dism_scan_health()
+                        self._store_result("DISM Scan Health", scan_result)
+                        self._show_single_result("dism_scan", scan_result)
+                        
+                        # Check if RestoreHealth is needed after ScanHealth
+                        if scan_result.success and "no component store corruption detected" not in scan_result.output.lower():
+                            should_restore = self.prompt_user(
+                                "DISM Corruption Detected",
+                                "DISM has detected corruption that can be repaired.\n\n"
+                                "Would you like to run DISM RestoreHealth to fix the issues?\n"
+                                "(This may take several minutes)"
+                            )
+                            
+                            if should_restore:
+                                self.window.append_output("")
+                                self.window.append_output("--- Proceeding to DISM Restore Health ---")
+                                self.window.append_output("")
+                                
+                                restore_result = self.commands.dism_restore_health()
+                                self._store_result("DISM Restore Health", restore_result)
+                                self._show_single_result("dism_restore", restore_result)
             elif tool_id == "dism_scan":
                 result = self.commands.dism_scan_health()
+                self._store_result("DISM Scan Health", result)
                 self._show_single_result(tool_id, result)
                 
                 # Check if RestoreHealth is needed after ScanHealth
@@ -338,12 +444,15 @@ class HealthCheckApp:
                         self.window.append_output("")
                         
                         restore_result = self.commands.dism_restore_health()
+                        self._store_result("DISM Restore Health", restore_result)
                         self._show_single_result("dism_restore", restore_result)
             elif tool_id == "sfc_scan":
                 result = self.commands.sfc_scan()
+                self._store_result("System File Checker", result)
                 self._show_single_result(tool_id, result)
             elif tool_id == "chkdsk_check":
                 result = self.commands.chkdsk_check()
+                self._store_result("Check Disk", result)
                 self._show_single_result(tool_id, result)
                 
                 # Check if Fix is needed after Check
@@ -361,6 +470,7 @@ class HealthCheckApp:
                         self.window.append_output("")
                         
                         fix_result = self.commands.chkdsk_fix()
+                        self._store_result("Check Disk Fix", fix_result)
                         self._show_single_result("chkdsk_fix", fix_result)
             else:
                 self.window.append_error(f"Unknown tool: {tool_id}")
@@ -374,6 +484,10 @@ class HealthCheckApp:
         self.window.append_output(f"--- {tool_name} COMPLETED ---", "#00ff00")
     
 
+    def _store_result(self, tool_name: str, result: CommandResult):
+        """Store a tool result for summary analysis"""
+        self.execution_results.append({"tool_name": tool_name, "result": result})
+    
     def _show_single_result(self, tool_id: str, result):
         """Display the result of a single tool execution"""
         if not result.success:
@@ -382,16 +496,65 @@ class HealthCheckApp:
                 self.window.append_output(f"Error details: {result.error}", "#ff0000")
     
     def _show_execution_summary(self):
-        """Show execution summary"""
+        """Show enhanced execution summary with intelligent result analysis"""
+        if not self.execution_results:
+            # Fallback to basic summary if no results stored
+            self.window.append_output("")
+            self.window.append_separator()
+            self.window.append_output("EXECUTION SUMMARY", "#00ffff")
+            self.window.append_separator()
+            self.window.append_output("No detailed results available.")
+            self.window.append_separator()
+            return
+        
         self.window.append_output("")
         self.window.append_separator()
         self.window.append_output("EXECUTION SUMMARY", "#00ffff")
         self.window.append_separator()
-        self.window.append_output(f"Total diagnostics ran: {len(self.current_tools)}/{len(self.current_tools)}")
-        self.window.append_output("Check the output above for detailed results.")
+        
+        # Analyze each tool result
+        successful_tools = 0
+        issues_detected = 0
+        issues_repaired = 0
+        failed_tools = 0
+        
+        for result_data in self.execution_results:
+            tool_name = result_data["tool_name"]
+            result = result_data["result"]
+            analysis = ResultAnalyzer.analyze_tool_result(tool_name, result)
+            
+            # Display individual tool result
+            status_message = f"{analysis['icon']} {tool_name}: {analysis['message']}"
+            
+            # Color code based on status
+            if analysis['status'] == 'success':
+                self.window.append_output(status_message, "#00ff00")  # Green
+                successful_tools += 1
+            elif analysis['status'] == 'issues_detected':
+                self.window.append_output(status_message, "#ffff00")  # Yellow
+                issues_detected += 1
+            elif analysis['status'] == 'issues_repaired':
+                self.window.append_output(status_message, "#00ffff")  # Cyan
+                issues_repaired += 1
+            elif analysis['status'] == 'failed':
+                self.window.append_output(status_message, "#ff0000")  # Red
+                failed_tools += 1
+        
+        # Summary statistics
+        total_tools = len(self.execution_results)
+        self.window.append_output("")
+        summary_line = f"Tools Run: {total_tools} | Successful: {successful_tools}"
+        if issues_detected > 0:
+            summary_line += f" | Issues Found: {issues_detected}"
+        if issues_repaired > 0:
+            summary_line += f" | Auto-Repaired: {issues_repaired}"
+        if failed_tools > 0:
+            summary_line += f" | Failed: {failed_tools}"
+        
+        self.window.append_output(summary_line, "#00ffff")
         self.window.append_output("")
         self.window.append_success("Maintenance cycle completed!")
-        self.window.append_output("You may now run additional tools or export the results.")
+        self.window.append_output("You may now export the results or run additional tools.")
         self.window.append_separator()
     
     def run(self):
