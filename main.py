@@ -139,6 +139,7 @@ class HealthCheckApp:
             "DISM Health Diagnostics": 57,  # CheckHealth + ScanHealth
             "System File Checker": 60,      # User's actual timing
             "Check Disk": 30,               # User preference
+            "Check Disk Fix": 60,           # Estimate for disk repair
             "Disk Check Diagnostics": 30    # Just check usually
         }
         
@@ -151,7 +152,7 @@ class HealthCheckApp:
                 self.current_tool_progress += increment
                 
                 # Calculate total progress (base + current tool portion)
-                tools_total = len(self.current_tools)
+                tools_total = max(getattr(self, 'total_tools_count', len(self.current_tools)), self.completed_tools + 1)
                 tool_portion = 1.0 / tools_total if tools_total > 0 else 1.0
                 total_progress = self.base_progress + (self.current_tool_progress * tool_portion)
                 
@@ -171,10 +172,16 @@ class HealthCheckApp:
     
     def advance_to_next_tool(self):
         """Advance base progress to the next tool"""
-        tools_total = len(self.current_tools)
-        if tools_total > 0:
-            self.base_progress = self.completed_tools / tools_total
+        # Use dynamic tool counting that grows with prompted tools
+        self.total_tools_count = max(getattr(self, 'total_tools_count', len(self.current_tools)), self.completed_tools + 1)
+        if self.total_tools_count > 0:
+            self.base_progress = self.completed_tools / self.total_tools_count
             self.current_tool_progress = 0.0
+    
+    def add_dynamic_tool(self):
+        """Add a dynamically triggered tool to the count for progress calculation"""
+        # This helps progress bar account for tools triggered by prompts
+        pass  # The advance_to_next_tool method now handles this automatically
     
     def start_system_info_updates(self):
         """Start periodic system info updates every 2 seconds"""
@@ -198,7 +205,7 @@ class HealthCheckApp:
             # Create the dialog using the main window as parent for proper modality
             dialog = tk.Toplevel(self.window.root)
             dialog.title(title)
-            dialog.geometry("400x150")
+            dialog.geometry("400x160")
             dialog.configure(bg="#c0c0c0")
             dialog.resizable(False, False)
             
@@ -209,7 +216,7 @@ class HealthCheckApp:
             dialog.focus_force()  # Force focus
             
             # Center the dialog relative to the main window
-            self.window._center_window(dialog, 400, 150)
+            self.window._center_window(dialog, 400, 160)
             
             # Create dialog content
             frame = tk.Frame(dialog, bg="#c0c0c0")
@@ -246,22 +253,24 @@ class HealthCheckApp:
                 btn_frame,
                 text="Yes",
                 command=on_yes,
-                width=10,
+                width=12,
+                height=1,
                 bg="#c0c0c0",
-                font=("MS Sans Serif", 9),
+                font=("MS Sans Serif", 10),
                 relief="raised",
                 bd=2
             )
-            yes_btn.pack(side="left", padx=(0, 10))
+            yes_btn.pack(side="left", padx=(0, 15))
             
             # No button
             no_btn = tk.Button(
                 btn_frame,
                 text="No",
                 command=on_no,
-                width=10,
+                width=12,
+                height=1,
                 bg="#c0c0c0",
-                font=("MS Sans Serif", 9),
+                font=("MS Sans Serif", 10),
                 relief="raised",
                 bd=2
             )
@@ -303,6 +312,9 @@ class HealthCheckApp:
             # Clear previous results at the start of new execution
             self.execution_results = []
             
+            # Initialize tool counting for progress
+            self.total_tools_count = len(self.current_tools)
+            
             total_tools = len(self.current_tools)
             
             # We'll add a separator after showing the execution plan
@@ -332,11 +344,15 @@ class HealthCheckApp:
                 self.start_progress_simulation(display_name)
                 
                 # Execute the tool
+                tools_before = self.completed_tools
                 self._execute_single_tool(tool_id)
                 
                 # Stop progress simulation and complete this tool
                 self.stop_progress_simulation_now()
-                self.completed_tools += 1
+                
+                # Only increment if no prompted tools were executed (avoid double counting)
+                if self.completed_tools == tools_before:
+                    self.completed_tools += 1
                 
                 # Small delay between tools
                 time.sleep(0.5)
@@ -359,6 +375,7 @@ class HealthCheckApp:
             self.base_progress = 0.0
             self.current_tool_progress = 0.0
             self.completed_tools = 0
+            self.total_tools_count = 0
             # Note: execution_results are kept for potential export, cleared at start of next run
             
             self.window.set_tools_enabled(True)
@@ -393,8 +410,7 @@ class HealthCheckApp:
                 if result.success and "no component store corruption detected" not in result.output.lower():
                     should_scan = self.prompt_user(
                         "DISM Component Store Issues Detected",
-                        "Component store corruption detected. Please proceed to the full DISM ScanHealth for more accurate analysis and repair if necessary.\n\n"
-                        "Would you like to run DISM ScanHealth to perform a detailed scan?\n"
+                        "Would you like to run DISM ScanHealth for detailed analysis?\n"
                         "(This may take several minutes)"
                     )
                     
@@ -403,9 +419,21 @@ class HealthCheckApp:
                         self.window.append_output("--- Proceeding to DISM Scan Health ---")
                         self.window.append_output("")
                         
+                        # Stop current progress and advance to next tool
+                        self.stop_progress_simulation_now()
+                        self.completed_tools += 1
+                        self.advance_to_next_tool()
+                        
+                        # Start progress for ScanHealth
+                        self.start_progress_simulation("DISM Scan Health")
+                        
                         scan_result = self.commands.dism_scan_health()
                         self._store_result("DISM Scan Health", scan_result)
                         self._show_single_result("dism_scan", scan_result)
+                        
+                        # Stop ScanHealth progress and mark as completed
+                        self.stop_progress_simulation_now()
+                        self.completed_tools += 1
                         
                         # Check if RestoreHealth is needed after ScanHealth
                         if scan_result.success and "no component store corruption detected" not in scan_result.output.lower():
@@ -421,9 +449,20 @@ class HealthCheckApp:
                                 self.window.append_output("--- Proceeding to DISM Restore Health ---")
                                 self.window.append_output("")
                                 
+                                # Advance to RestoreHealth progress
+                                self.completed_tools += 1
+                                self.advance_to_next_tool()
+                                
+                                # Start progress for RestoreHealth
+                                self.start_progress_simulation("DISM Restore Health")
+                                
                                 restore_result = self.commands.dism_restore_health()
                                 self._store_result("DISM Restore Health", restore_result)
                                 self._show_single_result("dism_restore", restore_result)
+                                
+                                # Stop RestoreHealth progress and mark as completed
+                                self.stop_progress_simulation_now()
+                                self.completed_tools += 1
             elif tool_id == "dism_scan":
                 result = self.commands.dism_scan_health()
                 self._store_result("DISM Scan Health", result)
@@ -443,9 +482,21 @@ class HealthCheckApp:
                         self.window.append_output("--- Proceeding to DISM Restore Health ---")
                         self.window.append_output("")
                         
+                        # Stop current progress and advance to next tool
+                        self.stop_progress_simulation_now()
+                        self.completed_tools += 1
+                        self.advance_to_next_tool()
+                        
+                        # Start progress for RestoreHealth
+                        self.start_progress_simulation("DISM Restore Health")
+                        
                         restore_result = self.commands.dism_restore_health()
                         self._store_result("DISM Restore Health", restore_result)
                         self._show_single_result("dism_restore", restore_result)
+                        
+                        # Stop RestoreHealth progress and mark as completed
+                        self.stop_progress_simulation_now()
+                        self.completed_tools += 1
             elif tool_id == "sfc_scan":
                 result = self.commands.sfc_scan()
                 self._store_result("System File Checker", result)
@@ -469,9 +520,21 @@ class HealthCheckApp:
                         self.window.append_output("--- Proceeding to Check Disk Fix ---")
                         self.window.append_output("")
                         
+                        # Stop current progress and advance to next tool
+                        self.stop_progress_simulation_now()
+                        self.completed_tools += 1
+                        self.advance_to_next_tool()
+                        
+                        # Start progress for Check Disk Fix
+                        self.start_progress_simulation("Check Disk Fix")
+                        
                         fix_result = self.commands.chkdsk_fix()
                         self._store_result("Check Disk Fix", fix_result)
                         self._show_single_result("chkdsk_fix", fix_result)
+                        
+                        # Stop Fix progress and mark as completed
+                        self.stop_progress_simulation_now()
+                        self.completed_tools += 1
             else:
                 self.window.append_error(f"Unknown tool: {tool_id}")
                 return
