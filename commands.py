@@ -292,6 +292,10 @@ class HealthCheckCommands:
     def chkdsk_fix(self, drive: str = "c:") -> CommandResult:
         """Run CHKDSK with fix"""
         return self.executor.execute_command(f"chkdsk {drive} /f")
+
+    def chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
+        """Public helper for CHKDSK fix detection"""
+        return self._chkdsk_needs_fix(check_result)
     
     def run_smart_dism_sequence(self, prompt_callback=None) -> list:
         """
@@ -379,13 +383,44 @@ class HealthCheckCommands:
     
     def _chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
         """Determine if CHKDSK fix is needed based on check output"""
-        if not check_result.success or not check_result.output:
+        if not check_result:
             return False
-        
-        output_lower = check_result.output.lower()
-        
-        # Look for the specific "Errors found" message that CHKDSK outputs
-        return "errors found" in output_lower
+
+        output_lower = (check_result.output or "").lower()
+
+        # Messages indicating CHKDSK could not complete or access the volume
+        failure_patterns = [
+            "cannot open volume for direct access",
+            "access denied",
+            "is write protected",
+            "unable to determine volume version and state",
+        ]
+        if any(pattern in output_lower for pattern in failure_patterns):
+            return False
+
+        # Common "no issues" messages
+        ok_patterns = [
+            "found no problems",
+            "found no issues",
+            "no problems were found",
+            "windows has scanned the file system and found no problems",
+        ]
+        if any(pattern in output_lower for pattern in ok_patterns):
+            return False
+
+        # Common "issues detected" messages
+        issue_patterns = [
+            "errors found",
+            "found problems",
+            "windows found problems",
+            "file system errors",
+            "has identified one or more errors",
+        ]
+        if any(pattern in output_lower for pattern in issue_patterns):
+            return True
+
+        # Fallback: non-zero exit codes often indicate issues were found
+        return check_result.exit_code in (1, 2, 3)
 
 
 # Test function for command execution

@@ -14,6 +14,7 @@ import sys
 from .system_info import SystemInfoPanel
 from .tool_selector import ToolSelectorPanel
 from .output_panel import OutputPanel
+from utils.admin import is_admin
 
 
 class MainWindow:
@@ -301,12 +302,18 @@ class MainWindow:
         self.progress_bar.set(0)
         
         # Admin status
-        admin_status = "✓ Administrator" if hasattr(self, 'is_admin') else "✓ Administrator"
+        try:
+            is_admin_user = is_admin()
+        except Exception:
+            is_admin_user = False
+
+        admin_status = "✓ Administrator" if is_admin_user else "✗ Not Administrator"
+        admin_color = "#008000" if is_admin_user else "#800000"
         admin_label = ctk.CTkLabel(
             status_frame,
             text=admin_status,
             font=ctk.CTkFont(family="MS Sans Serif", size=12),
-            text_color="#008000"  # Green for admin status
+            text_color=admin_color
         )
         admin_label.pack(side="right", padx=15)
     

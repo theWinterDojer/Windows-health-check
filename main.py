@@ -6,6 +6,7 @@ A modern GUI tool for Windows system maintenance and diagnostics with retro Wind
 import sys
 import threading
 import time
+import queue
 from typing import List
 from tkinter import messagebox
 import tkinter as tk
@@ -19,6 +20,55 @@ class ResultAnalyzer:
     """Analyzes tool execution results for intelligent summary generation"""
     
     @staticmethod
+    def _analyze_chkdsk(result: CommandResult) -> dict:
+        """Analyze CHKDSK results, treating findings as issues not failures."""
+        output_lower = (result.output or "").lower()
+
+        failure_patterns = [
+            "cannot open volume for direct access",
+            "access denied",
+            "is write protected",
+            "unable to determine volume version and state",
+        ]
+        if any(pattern in output_lower for pattern in failure_patterns):
+            return {
+                'status': 'failed',
+                'message': f"Tool execution failed (exit code: {result.exit_code})",
+                'icon': '❌'
+            }
+
+        ok_patterns = [
+            "windows has scanned the file system and found no problems",
+            "found no problems",
+            "no problems were found",
+            "found no issues",
+        ]
+        if any(pattern in output_lower for pattern in ok_patterns):
+            return {'status': 'success', 'message': 'No problems found', 'icon': '✅'}
+
+        issue_patterns = [
+            "errors found",
+            "found problems",
+            "windows found problems",
+            "file system errors",
+            "has identified one or more errors",
+        ]
+        if any(pattern in output_lower for pattern in issue_patterns):
+            return {'status': 'issues_detected', 'message': 'Issues detected', 'icon': '⚠️'}
+
+        if result.exit_code in (1, 2, 3):
+            return {'status': 'issues_detected', 'message': 'Issues detected', 'icon': '⚠️'}
+
+        if not result.success:
+            return {
+                'status': 'failed',
+                'message': f"Tool execution failed (exit code: {result.exit_code})",
+                'icon': '❌'
+            }
+
+        return {'status': 'success', 'message': 'Completed', 'icon': '✅'}
+
+    @staticmethod
     def analyze_tool_result(tool_name: str, result: CommandResult) -> dict:
         """
         Analyze a single tool result and return status information
@@ -27,6 +77,9 @@ class ResultAnalyzer:
             dict with keys: 'status', 'message', 'icon'
             status: 'success', 'issues_detected', 'issues_repaired'
         """
+        if tool_name == "Check Disk":
+            return ResultAnalyzer._analyze_chkdsk(result)
+
         if not result.success:
             return {
                 'status': 'failed',
@@ -96,6 +149,12 @@ class HealthCheckApp:
         
         # Create main window with run callback
         self.window = MainWindow(run_callback=self.run_selected_tools)
+
+        # UI queue for thread-safe updates
+        self.ui_queue = queue.Queue()
+        self.ui_thread_id = threading.get_ident()
+        self.ui_queue_running = False
+        self._start_ui_queue()
         
         # Execution state
         self.is_running = False
@@ -124,7 +183,37 @@ class HealthCheckApp:
     
     def output_callback(self, line: str):
         """Callback function for command output"""
-        self.window.append_output(line)
+        self._enqueue_ui("append_output", line)
+
+    def _start_ui_queue(self):
+        """Start UI queue polling on the main thread"""
+        if self.ui_queue_running:
+            return
+        self.ui_queue_running = True
+        self.window.root.after(50, self._process_ui_queue)
+
+    def _process_ui_queue(self):
+        """Process queued UI updates on the main thread"""
+        while True:
+            try:
+                method, args, kwargs = self.ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                getattr(self.window, method)(*args, **kwargs)
+            except Exception as exc:
+                print(f"UI update failed: {exc}", file=sys.stderr)
+        try:
+            self.window.root.after(50, self._process_ui_queue)
+        except Exception:
+            pass
+
+    def _enqueue_ui(self, method: str, *args, **kwargs):
+        """Enqueue UI work to be executed on the main thread"""
+        if threading.get_ident() == self.ui_thread_id:
+            getattr(self.window, method)(*args, **kwargs)
+            return
+        self.ui_queue.put((method, args, kwargs))
     
     def start_progress_simulation(self, tool_name: str):
         """Start a smooth progress simulation for the current tool"""
@@ -157,7 +246,7 @@ class HealthCheckApp:
                 total_progress = self.base_progress + (self.current_tool_progress * tool_portion)
                 
                 # Update the progress bar
-                self.window.update_progress(total_progress, f"Running {tool_name}...")
+                self._enqueue_ui("update_progress", total_progress, f"Running {tool_name}...")
                 
                 time.sleep(0.1)  # Update every 100ms
         
@@ -283,9 +372,17 @@ class HealthCheckApp:
             dialog.wait_window()
             
             return self.dialog_result
-        
-        # Show the dialog and return the result
-        return show_modal_dialog()
+
+        if threading.get_ident() == self.ui_thread_id:
+            return show_modal_dialog()
+
+        result_queue = queue.Queue(maxsize=1)
+
+        def show_and_store():
+            result_queue.put(show_modal_dialog())
+
+        self.window.root.after(0, show_and_store)
+        return result_queue.get()
     
     def run_selected_tools(self, selected_tools: List[str]):
         """Run the selected maintenance tools"""
@@ -307,7 +404,7 @@ class HealthCheckApp:
         """Execute tools in a separate thread"""
         try:
             self.is_running = True
-            self.window.set_tools_enabled(False)
+            self._enqueue_ui("set_tools_enabled", False)
             
             # Clear previous results at the start of new execution
             self.execution_results = []
@@ -322,9 +419,9 @@ class HealthCheckApp:
             # Simple execution - just run tools in the order selected
             
             # Now show the actual execution plan
-            self.window.append_separator()
-            self.window.append_output(f"Starting execution of {len(self.current_tools)} diagnostic(s)...", "#00ffff")
-            self.window.append_separator()
+            self._enqueue_ui("append_separator")
+            self._enqueue_ui("append_output", f"Starting execution of {len(self.current_tools)} diagnostic(s)...", "#00ffff")
+            self._enqueue_ui("append_separator")
             
             for i, tool_id in enumerate(self.current_tools):
                 # Set up progress simulation for this tool
@@ -358,13 +455,13 @@ class HealthCheckApp:
                 time.sleep(0.5)
             
             # Final progress update
-            self.window.update_progress(1.0, "All tools completed")
+            self._enqueue_ui("update_progress", 1.0, "All tools completed")
             
             # Show summary
             self._show_execution_summary()
             
         except Exception as e:
-            self.window.append_error(f"Execution error: {str(e)}")
+            self._enqueue_ui("append_error", f"Execution error: {str(e)}")
         
         finally:
             # Stop any running progress simulation
@@ -378,8 +475,8 @@ class HealthCheckApp:
             self.total_tools_count = 0
             # Note: execution_results are kept for potential export, cleared at start of next run
             
-            self.window.set_tools_enabled(True)
-            self.window.update_progress(0, "Ready")
+            self._enqueue_ui("set_tools_enabled", True)
+            self._enqueue_ui("update_progress", 0, "Ready")
     
     def _execute_single_tool(self, tool_id: str):
         """Execute a single maintenance tool"""
@@ -394,11 +491,11 @@ class HealthCheckApp:
         tool_name = tool_names.get(tool_id, tool_id.upper())
         
         # Clear section separator
-        self.window.append_output("")
-        self.window.append_output("=" * 50, "#808080")
-        self.window.append_output(f"=== {tool_name} ===", "#ffff00")
-        self.window.append_output("=" * 50, "#808080")
-        self.window.append_output("")
+        self._enqueue_ui("append_output", "")
+        self._enqueue_ui("append_output", "=" * 50, "#808080")
+        self._enqueue_ui("append_output", f"=== {tool_name} ===", "#ffff00")
+        self._enqueue_ui("append_output", "=" * 50, "#808080")
+        self._enqueue_ui("append_output", "")
         
         try:
             if tool_id == "dism_check":
@@ -415,9 +512,9 @@ class HealthCheckApp:
                     )
                     
                     if should_scan:
-                        self.window.append_output("")
-                        self.window.append_output("--- Proceeding to DISM Scan Health ---")
-                        self.window.append_output("")
+                        self._enqueue_ui("append_output", "")
+                        self._enqueue_ui("append_output", "--- Proceeding to DISM Scan Health ---")
+                        self._enqueue_ui("append_output", "")
                         
                         # Stop current progress and advance to next tool
                         self.stop_progress_simulation_now()
@@ -445,9 +542,9 @@ class HealthCheckApp:
                             )
                             
                             if should_restore:
-                                self.window.append_output("")
-                                self.window.append_output("--- Proceeding to DISM Restore Health ---")
-                                self.window.append_output("")
+                                self._enqueue_ui("append_output", "")
+                                self._enqueue_ui("append_output", "--- Proceeding to DISM Restore Health ---")
+                                self._enqueue_ui("append_output", "")
                                 
                                 # Advance to RestoreHealth progress
                                 self.completed_tools += 1
@@ -478,9 +575,9 @@ class HealthCheckApp:
                     )
                     
                     if should_restore:
-                        self.window.append_output("")
-                        self.window.append_output("--- Proceeding to DISM Restore Health ---")
-                        self.window.append_output("")
+                        self._enqueue_ui("append_output", "")
+                        self._enqueue_ui("append_output", "--- Proceeding to DISM Restore Health ---")
+                        self._enqueue_ui("append_output", "")
                         
                         # Stop current progress and advance to next tool
                         self.stop_progress_simulation_now()
@@ -507,7 +604,7 @@ class HealthCheckApp:
                 self._show_single_result(tool_id, result)
                 
                 # Check if Fix is needed after Check
-                if result.success and result.output and "errors found" in result.output.lower():
+                if self.commands.chkdsk_needs_fix(result):
                     should_fix = self.prompt_user(
                         "Disk Errors Detected",
                         "Check Disk has detected errors that can be repaired.\n\n"
@@ -516,9 +613,9 @@ class HealthCheckApp:
                     )
                     
                     if should_fix:
-                        self.window.append_output("")
-                        self.window.append_output("--- Proceeding to Check Disk Fix ---")
-                        self.window.append_output("")
+                        self._enqueue_ui("append_output", "")
+                        self._enqueue_ui("append_output", "--- Proceeding to Check Disk Fix ---")
+                        self._enqueue_ui("append_output", "")
                         
                         # Stop current progress and advance to next tool
                         self.stop_progress_simulation_now()
@@ -536,15 +633,15 @@ class HealthCheckApp:
                         self.stop_progress_simulation_now()
                         self.completed_tools += 1
             else:
-                self.window.append_error(f"Unknown tool: {tool_id}")
+                self._enqueue_ui("append_error", f"Unknown tool: {tool_id}")
                 return
                     
         except Exception as e:
-            self.window.append_error(f"Failed to execute {tool_id}: {str(e)}")
+            self._enqueue_ui("append_error", f"Failed to execute {tool_id}: {str(e)}")
         
         # End section spacing
-        self.window.append_output("")
-        self.window.append_output(f"--- {tool_name} COMPLETED ---", "#00ff00")
+        self._enqueue_ui("append_output", "")
+        self._enqueue_ui("append_output", f"--- {tool_name} COMPLETED ---", "#00ff00")
     
 
     def _store_result(self, tool_name: str, result: CommandResult):
@@ -554,26 +651,26 @@ class HealthCheckApp:
     def _show_single_result(self, tool_id: str, result):
         """Display the result of a single tool execution"""
         if not result.success:
-            self.window.append_error(f"{tool_id} failed with exit code {result.exit_code}")
+            self._enqueue_ui("append_error", f"{tool_id} failed with exit code {result.exit_code}")
             if result.error:
-                self.window.append_output(f"Error details: {result.error}", "#ff0000")
+                self._enqueue_ui("append_output", f"Error details: {result.error}", "#ff0000")
     
     def _show_execution_summary(self):
         """Show enhanced execution summary with intelligent result analysis"""
         if not self.execution_results:
             # Fallback to basic summary if no results stored
-            self.window.append_output("")
-            self.window.append_separator()
-            self.window.append_output("EXECUTION SUMMARY", "#00ffff")
-            self.window.append_separator()
-            self.window.append_output("No detailed results available.")
-            self.window.append_separator()
+            self._enqueue_ui("append_output", "")
+            self._enqueue_ui("append_separator")
+            self._enqueue_ui("append_output", "EXECUTION SUMMARY", "#00ffff")
+            self._enqueue_ui("append_separator")
+            self._enqueue_ui("append_output", "No detailed results available.")
+            self._enqueue_ui("append_separator")
             return
         
-        self.window.append_output("")
-        self.window.append_separator()
-        self.window.append_output("EXECUTION SUMMARY", "#00ffff")
-        self.window.append_separator()
+        self._enqueue_ui("append_output", "")
+        self._enqueue_ui("append_separator")
+        self._enqueue_ui("append_output", "EXECUTION SUMMARY", "#00ffff")
+        self._enqueue_ui("append_separator")
         
         # Analyze each tool result
         successful_tools = 0
@@ -591,21 +688,21 @@ class HealthCheckApp:
             
             # Color code based on status
             if analysis['status'] == 'success':
-                self.window.append_output(status_message, "#00ff00")  # Green
+                self._enqueue_ui("append_output", status_message, "#00ff00")  # Green
                 successful_tools += 1
             elif analysis['status'] == 'issues_detected':
-                self.window.append_output(status_message, "#ffff00")  # Yellow
+                self._enqueue_ui("append_output", status_message, "#ffff00")  # Yellow
                 issues_detected += 1
             elif analysis['status'] == 'issues_repaired':
-                self.window.append_output(status_message, "#00ffff")  # Cyan
+                self._enqueue_ui("append_output", status_message, "#00ffff")  # Cyan
                 issues_repaired += 1
             elif analysis['status'] == 'failed':
-                self.window.append_output(status_message, "#ff0000")  # Red
+                self._enqueue_ui("append_output", status_message, "#ff0000")  # Red
                 failed_tools += 1
         
         # Summary statistics
         total_tools = len(self.execution_results)
-        self.window.append_output("")
+        self._enqueue_ui("append_output", "")
         summary_line = f"Tools Run: {total_tools} | Successful: {successful_tools}"
         if issues_detected > 0:
             summary_line += f" | Issues Found: {issues_detected}"
@@ -614,11 +711,11 @@ class HealthCheckApp:
         if failed_tools > 0:
             summary_line += f" | Failed: {failed_tools}"
         
-        self.window.append_output(summary_line, "#00ffff")
-        self.window.append_output("")
-        self.window.append_success("Maintenance cycle completed!")
-        self.window.append_output("You may now export the results or run additional tools.")
-        self.window.append_separator()
+        self._enqueue_ui("append_output", summary_line, "#00ffff")
+        self._enqueue_ui("append_output", "")
+        self._enqueue_ui("append_success", "Maintenance cycle completed!")
+        self._enqueue_ui("append_output", "You may now export the results or run additional tools.")
+        self._enqueue_ui("append_separator")
     
     def run(self):
         """Start the application"""

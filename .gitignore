@@ -186,6 +186,9 @@ temp/
 logs/
 images/
 docs/
+AGENTS.md
+plan.md
+
 
 # Windows executable builds (if you create standalone executables)
 *.exe
