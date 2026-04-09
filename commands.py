@@ -269,10 +269,6 @@ class HealthCheckCommands:
     def __init__(self, executor: WindowsCommandExecutor):
         self.executor = executor
         
-    def dism_check_health(self) -> CommandResult:
-        """Run DISM CheckHealth"""
-        return self.executor.execute_command("DISM /Online /Cleanup-Image /CheckHealth")
-    
     def dism_scan_health(self) -> CommandResult:
         """Run DISM ScanHealth"""
         return self.executor.execute_command("DISM /Online /Cleanup-Image /ScanHealth")
@@ -296,90 +292,6 @@ class HealthCheckCommands:
     def chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
         """Public helper for CHKDSK fix detection"""
         return self._chkdsk_needs_fix(check_result)
-    
-    def run_smart_dism_sequence(self, prompt_callback=None) -> list:
-        """
-        Run DISM commands: ScanHealth first, then RestoreHealth if corruption detected
-        
-        Args:
-            prompt_callback: Function to call when user prompt is needed
-            
-        Returns:
-            List of CommandResult objects
-        """
-        results = []
-        
-        # Step 1: Run ScanHealth to check for corruption
-        scan_result = self.dism_scan_health()
-        results.append(("dism_scan", scan_result))
-        
-        # Step 2: Check if RestoreHealth is needed
-        if scan_result.success and "no component store corruption detected" not in scan_result.output.lower():
-            # Step 3: Prompt user for RestoreHealth
-            should_restore = True  # Default to yes
-            if prompt_callback:
-                should_restore = prompt_callback(
-                    "DISM Corruption Detected",
-                    "DISM has detected corruption that can be repaired.\n\n"
-                    "Would you like to run DISM RestoreHealth to fix the issues?\n"
-                    "(This may take several minutes)"
-                )
-            
-            if should_restore:
-                # Add visual separator before RestoreHealth
-                if hasattr(self.executor, 'output_callback') and self.executor.output_callback:
-                    self.executor.output_callback("")
-                    self.executor.output_callback("--- Proceeding to DISM Restore Health ---")
-                    self.executor.output_callback("")
-                
-                restore_result = self.dism_restore_health()
-                results.append(("dism_restore", restore_result))
-        
-        return results
-    
-
-    
-    def run_smart_chkdsk_sequence(self, prompt_callback=None) -> list:
-        """
-        Run CHKDSK in smart sequence: check first, then fix if errors found
-        
-        Args:
-            prompt_callback: Function to prompt user for confirmation
-            
-        Returns:
-            List of CommandResult objects
-        """
-        results = []
-        
-        # Step 1: Always run Check first (read-only)
-        check_result = self.chkdsk_check()
-        results.append(("chkdsk_check", check_result))
-        
-        # Step 2: Analyze check output for errors
-        needs_fix = self._chkdsk_needs_fix(check_result)
-        
-        if needs_fix:
-            # Add visual separator before fix command
-            if hasattr(self.executor, 'output_callback') and self.executor.output_callback:
-                self.executor.output_callback("")
-                self.executor.output_callback("--- Proceeding to Check Disk Fix ---")
-                self.executor.output_callback("")
-            
-            # Step 3: Prompt user for fix
-            should_fix = True  # Default to yes
-            if prompt_callback:
-                should_fix = prompt_callback(
-                    "Disk Errors Detected",
-                    "Check Disk has detected errors that can be repaired.\n\n"
-                    "Would you like to run Check Disk with fix to repair the errors?\n"
-                    "(This may take several minutes and require a restart for system drive)"
-                )
-            
-            if should_fix:
-                fix_result = self.chkdsk_fix()
-                results.append(("chkdsk_fix", fix_result))
-        
-        return results
     
     def _chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
         """Determine if CHKDSK fix is needed based on check output"""

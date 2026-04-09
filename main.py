@@ -89,15 +89,8 @@ class ResultAnalyzer:
         
         output_lower = result.output.lower()
         
-        # DISM Check Health
-        if tool_name == "DISM Check Health":
-            if "no component store corruption detected" in output_lower:
-                return {'status': 'success', 'message': 'No corruption detected', 'icon': '✅'}
-            else:
-                return {'status': 'issues_detected', 'message': 'Corruption detected', 'icon': '⚠️'}
-        
-        # DISM Scan Health  
-        elif tool_name == "DISM Scan Health":
+        # DISM Scan Health
+        if tool_name == "DISM Scan Health":
             if "no component store corruption detected" in output_lower:
                 return {'status': 'success', 'message': 'No corruption detected', 'icon': '✅'}
             else:
@@ -222,10 +215,8 @@ class HealthCheckApp:
         
         # Use realistic timing estimates based on user testing
         tool_durations = {
-            "DISM Check Health": 2,         # User's actual timing
             "DISM Scan Health": 55,         # User's actual timing
             "DISM Restore Health": 60,      # Estimate (similar to SFC)
-            "DISM Health Diagnostics": 57,  # CheckHealth + ScanHealth
             "System File Checker": 60,      # User's actual timing
             "Check Disk": 30,               # User preference
             "Check Disk Fix": 60,           # Estimate for disk repair
@@ -429,8 +420,7 @@ class HealthCheckApp:
                 
                 # Get friendly tool name for progress display
                 tool_names = {
-                    "dism_check": "DISM Check Health",
-                    "dism_scan": "DISM Scan Health", 
+                    "dism_scan": "DISM Scan Health",
                     "dism_restore": "DISM Restore Health",
                     "sfc_scan": "System File Checker",
                     "chkdsk_check": "Check Disk"
@@ -482,8 +472,7 @@ class HealthCheckApp:
         """Execute a single maintenance tool"""
         # Get friendly tool names
         tool_names = {
-            "dism_check": "DISM CHECK HEALTH",
-            "dism_scan": "DISM SCAN HEALTH", 
+            "dism_scan": "DISM SCAN HEALTH",
             "sfc_scan": "SYSTEM FILE CHECKER",
             "chkdsk_check": "CHECK DISK"
         }
@@ -498,69 +487,7 @@ class HealthCheckApp:
         self._enqueue_ui("append_output", "")
         
         try:
-            if tool_id == "dism_check":
-                result = self.commands.dism_check_health()
-                self._store_result("DISM Check Health", result)
-                self._show_single_result(tool_id, result)
-                
-                # Check if ScanHealth is needed after CheckHealth
-                if result.success and "no component store corruption detected" not in result.output.lower():
-                    should_scan = self.prompt_user(
-                        "DISM Component Store Issues Detected",
-                        "Would you like to run DISM ScanHealth for detailed analysis?\n"
-                        "(This may take several minutes)"
-                    )
-                    
-                    if should_scan:
-                        self._enqueue_ui("append_output", "")
-                        self._enqueue_ui("append_output", "--- Proceeding to DISM Scan Health ---")
-                        self._enqueue_ui("append_output", "")
-                        
-                        # Stop current progress and advance to next tool
-                        self.stop_progress_simulation_now()
-                        self.completed_tools += 1
-                        self.advance_to_next_tool()
-                        
-                        # Start progress for ScanHealth
-                        self.start_progress_simulation("DISM Scan Health")
-                        
-                        scan_result = self.commands.dism_scan_health()
-                        self._store_result("DISM Scan Health", scan_result)
-                        self._show_single_result("dism_scan", scan_result)
-                        
-                        # Stop ScanHealth progress and mark as completed
-                        self.stop_progress_simulation_now()
-                        self.completed_tools += 1
-                        
-                        # Check if RestoreHealth is needed after ScanHealth
-                        if scan_result.success and "no component store corruption detected" not in scan_result.output.lower():
-                            should_restore = self.prompt_user(
-                                "DISM Corruption Detected",
-                                "DISM has detected corruption that can be repaired.\n\n"
-                                "Would you like to run DISM RestoreHealth to fix the issues?\n"
-                                "(This may take several minutes)"
-                            )
-                            
-                            if should_restore:
-                                self._enqueue_ui("append_output", "")
-                                self._enqueue_ui("append_output", "--- Proceeding to DISM Restore Health ---")
-                                self._enqueue_ui("append_output", "")
-                                
-                                # Advance to RestoreHealth progress
-                                self.completed_tools += 1
-                                self.advance_to_next_tool()
-                                
-                                # Start progress for RestoreHealth
-                                self.start_progress_simulation("DISM Restore Health")
-                                
-                                restore_result = self.commands.dism_restore_health()
-                                self._store_result("DISM Restore Health", restore_result)
-                                self._show_single_result("dism_restore", restore_result)
-                                
-                                # Stop RestoreHealth progress and mark as completed
-                                self.stop_progress_simulation_now()
-                                self.completed_tools += 1
-            elif tool_id == "dism_scan":
+            if tool_id == "dism_scan":
                 result = self.commands.dism_scan_health()
                 self._store_result("DISM Scan Health", result)
                 self._show_single_result(tool_id, result)
@@ -607,9 +534,9 @@ class HealthCheckApp:
                 if self.commands.chkdsk_needs_fix(result):
                     should_fix = self.prompt_user(
                         "Disk Errors Detected",
-                        "Check Disk has detected errors that can be repaired.\n\n"
+                        "Check Disk has detected filesystem errors that can be repaired.\n\n"
                         "Would you like to run Check Disk with fix to repair the errors?\n"
-                        "(This may take several minutes and requires a system restart)"
+                        "(This is usually only needed when you suspect disk or filesystem issues and may require a system restart)"
                     )
                     
                     if should_fix:

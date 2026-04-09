@@ -500,7 +500,7 @@ Safe to run: Yes, read-only operation
 🔍 DISM SCAN HEALTH  
 Purpose: Deep scan for Windows image corruption
 What it does: Performs a thorough scan of the Windows component store to identify specific corruption issues
-When to use: When CheckHealth indicates problems, or for comprehensive diagnostics
+When to use: For comprehensive Windows image diagnostics
 Time required: 2-5 minutes
 Safe to run: Yes, read-only operation
 
@@ -545,11 +545,10 @@ Safe to run: Generally yes, but may require restart for system drive
 
 💡 RECOMMENDED USAGE:
 
-1. Start with DISM Check Health and System File Checker for most issues
-2. Use DISM Scan Health if Check Health finds problems  
-3. Let the tool automatically prompt you for DISM Restore Health if needed
-4. Use Check Disk tools if you suspect hardware/storage issues
-5. Always ensure you have recent backups before running repair operations
+1. Start with DISM Scan Health and System File Checker for most Windows stability issues
+2. Let the tool automatically prompt you for DISM Restore Health if needed
+3. Use Check Disk tools only when you suspect disk or filesystem issues
+4. Always ensure you have recent backups before running repair operations
 
 ════════════════════════════════════════════════════════
 

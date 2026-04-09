@@ -24,10 +24,9 @@ class ToolSelectorPanel:
         
         # Define available tools
         self.tools = [
-            ("dism_check", "DISM Check Health", "Quick check for image corruption"),
             ("dism_scan", "DISM Scan Health", "Deep scan for image corruption"),
             ("sfc_scan", "System File Checker", "Scan and repair system files"),
-            ("chkdsk_check", "Check Disk (C:)", "Check disk for errors")
+            ("chkdsk_check", "Check Disk (C:)", "Optional disk/filesystem diagnostic")
         ]
         
         # Create the main frame with retro styling
