@@ -3,11 +3,12 @@ Windows Health Check Commands
 Handles execution of Windows maintenance commands with real-time output capture
 """
 
+import codecs
+import locale
+import os
 import subprocess
-import io
 import threading
 import queue
-import time
 from typing import Callable, Optional, List, Tuple
 
 
@@ -35,42 +36,132 @@ class WindowsCommandExecutor:
         self.is_running = False
         self.current_process = None
         
-    def _read_output(self, pipe, output_queue: queue.Queue, prefix: str = ""):
-        """Read output from subprocess pipe in a separate thread - minimal processing"""
-        try:
-            while self.is_running:
-                line = pipe.readline()
-                if not line:  # EOF
-                    break
-                # Handle carriage returns (progress indicators) and remove trailing whitespace
-                clean_line = line.rstrip('\r\n')
-                if clean_line:  # Only add non-empty lines
-                    output_queue.put(f"{prefix}{clean_line}")
-        except Exception as e:
-            output_queue.put(f"ERROR: {str(e)}")
-        finally:
-            pipe.close()
+    def _emit_stream_text(self, text: str, output_queue: queue.Queue, prefix: str = ""):
+        """Split streamed text on CR/LF boundaries so inline progress updates surface immediately."""
+        for line in text.replace("\r\n", "\r").replace("\n", "\r").split("\r"):
+            clean_line = line.rstrip("\r\n")
+            if clean_line:
+                output_queue.put(f"{prefix}{clean_line}")
 
-    def _read_output_utf16(self, pipe, output_queue: queue.Queue, prefix: str = ""):
-        """Read output from a binary pipe that emits UTF-16LE text (e.g., SFC)."""
+    def _read_output(self, pipe, output_queue: queue.Queue, encoding: str, prefix: str = ""):
+        """Read subprocess output incrementally so CR-based progress is not buffered until newline."""
+        decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+        pending_text = ""
+        fd = pipe.fileno()
         try:
-            # Wrap the binary pipe with a TextIO wrapper using UTF-16LE decoding.
-            # UTF-16LE doesn't require BOM and is what Windows uses for SFC output.
-            text_stream = io.TextIOWrapper(pipe, encoding='utf-16le', errors='replace')
             while self.is_running:
-                line = text_stream.readline()
-                if not line:
+                chunk = os.read(fd, 64)
+                if not chunk:
                     break
-                clean_line = line.rstrip('\r\n')
-                if clean_line:
-                    output_queue.put(f"{prefix}{clean_line}")
+
+                pending_text += decoder.decode(chunk)
+
+                last_break = max(pending_text.rfind("\r"), pending_text.rfind("\n"))
+                if last_break == -1:
+                    continue
+
+                complete_text = pending_text[:last_break + 1]
+                pending_text = pending_text[last_break + 1:]
+                self._emit_stream_text(complete_text, output_queue, prefix)
+
+            pending_text += decoder.decode(b"", final=True)
+            final_line = pending_text.rstrip("\r\n")
+            if final_line:
+                output_queue.put(f"{prefix}{final_line}")
         except Exception as e:
             output_queue.put(f"ERROR: {str(e)}")
         finally:
             try:
-                text_stream.detach()
+                pipe.close()
             except Exception:
                 pass
+
+    def _process_stream_output(self, output_queue: queue.Queue, output_lines: List[str], error_lines: List[str]):
+        """Drain queued subprocess output and forward it to the UI callback."""
+        while True:
+            try:
+                line = output_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            output_lines.append(line)
+            if self.output_callback:
+                self.output_callback(line)
+            if line.startswith("ERROR:"):
+                error_lines.append(line)
+
+    def _execute_streamed_command(self, command: str, encoding: str, shell: bool = True) -> CommandResult:
+        """Execute a command with incremental streamed output capture."""
+        if self.output_callback:
+            self.output_callback(f"C:\\> {command}")
+
+        output_lines = []
+        error_lines = []
+        output_queue = queue.Queue()
+
+        try:
+            self.is_running = True
+            self.current_process = subprocess.Popen(
+                command,
+                shell=shell,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=False,
+                creationflags=0
+            )
+
+            stdout_thread = threading.Thread(
+                target=self._read_output,
+                args=(self.current_process.stdout, output_queue, encoding, "")
+            )
+            stderr_thread = threading.Thread(
+                target=self._read_output,
+                args=(self.current_process.stderr, output_queue, encoding, "ERROR: ")
+            )
+
+            stdout_thread.start()
+            stderr_thread.start()
+
+            while self.current_process.poll() is None or not output_queue.empty():
+                try:
+                    line = output_queue.get(timeout=0.1)
+                    output_lines.append(line)
+                    if self.output_callback:
+                        self.output_callback(line)
+                    if line.startswith("ERROR:"):
+                        error_lines.append(line)
+                except queue.Empty:
+                    continue
+
+            exit_code = self.current_process.wait()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            self._process_stream_output(output_queue, output_lines, error_lines)
+
+            return CommandResult(
+                command=command,
+                exit_code=exit_code,
+                output="\n".join(output_lines),
+                error="\n".join(error_lines)
+            )
+        except Exception as e:
+            error_msg = f"Failed to execute command: {str(e)}"
+            if self.output_callback:
+                self.output_callback(f"ERROR: {error_msg}")
+
+            return CommandResult(
+                command=command,
+                exit_code=-1,
+                output="\n".join(output_lines),
+                error=error_msg
+            )
+        finally:
+            self.is_running = False
+            if self.current_process:
+                try:
+                    self.current_process.terminate()
+                except Exception:
+                    pass
     
     def execute_command(self, command: str, shell: bool = True) -> CommandResult:
         """
@@ -83,97 +174,11 @@ class WindowsCommandExecutor:
         Returns:
             CommandResult object with execution details
         """
-        if self.output_callback:
-            self.output_callback(f"C:\\> {command}")
-        
-        output_lines = []
-        error_lines = []
-        output_queue = queue.Queue()
-        
-        try:
-            self.is_running = True
-            
-            # Start the process (minimal processing - capture exactly what Windows outputs)
-            self.current_process = subprocess.Popen(
-                command,
-                shell=shell,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
-                creationflags=0
-            )
-            
-            # Start threads to read stdout and stderr
-            stdout_thread = threading.Thread(
-                target=self._read_output,
-                args=(self.current_process.stdout, output_queue, "")
-            )
-            stderr_thread = threading.Thread(
-                target=self._read_output,
-                args=(self.current_process.stderr, output_queue, "ERROR: ")
-            )
-            
-            stdout_thread.start()
-            stderr_thread.start()
-            
-            # Process output in real-time
-            while self.current_process.poll() is None or not output_queue.empty():
-                try:
-                    line = output_queue.get(timeout=0.1)
-                    output_lines.append(line)
-                    
-                    if self.output_callback:
-                        self.output_callback(line)
-                        
-                    if line.startswith("ERROR:"):
-                        error_lines.append(line)
-                        
-                except queue.Empty:
-                    continue
-            
-            # Wait for process to complete
-            exit_code = self.current_process.wait()
-            
-            # Wait for threads to finish
-            stdout_thread.join(timeout=1)
-            stderr_thread.join(timeout=1)
-            
-            # Get any remaining output
-            while not output_queue.empty():
-                try:
-                    line = output_queue.get_nowait()
-                    output_lines.append(line)
-                    if line.startswith("ERROR:"):
-                        error_lines.append(line)
-                except queue.Empty:
-                    break
-            
-            return CommandResult(
-                command=command,
-                exit_code=exit_code,
-                output="\n".join(output_lines),
-                error="\n".join(error_lines)
-            )
-            
-        except Exception as e:
-            error_msg = f"Failed to execute command: {str(e)}"
-            if self.output_callback:
-                self.output_callback(f"ERROR: {error_msg}")
-            
-            return CommandResult(
-                command=command,
-                exit_code=-1,
-                output="\n".join(output_lines),
-                error=error_msg
-            )
-            
-        finally:
-            self.is_running = False
-            if self.current_process:
-                try:
-                    self.current_process.terminate()
-                except:
-                    pass
+        return self._execute_streamed_command(
+            command,
+            encoding=locale.getpreferredencoding(False),
+            shell=shell
+        )
     
     def stop_execution(self):
         """Stop the currently running command"""
@@ -190,77 +195,7 @@ class WindowsCommandExecutor:
 
     def execute_sfc(self, command: str = "sfc /scannow", shell: bool = True) -> CommandResult:
         """Execute SFC with proper UTF-16 decoding to avoid spaced characters."""
-        if self.output_callback:
-            self.output_callback(f"C:\\> {command}")
-
-        output_lines = []
-        error_lines = []
-        output_queue = queue.Queue()
-
-        try:
-            self.is_running = True
-            # Launch without text/universal_newlines; we'll decode as UTF-16 ourselves.
-            self.current_process = subprocess.Popen(
-                command,
-                shell=shell,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=False,
-                creationflags=0
-            )
-
-            stdout_thread = threading.Thread(
-                target=self._read_output_utf16,
-                args=(self.current_process.stdout, output_queue, "")
-            )
-            stderr_thread = threading.Thread(
-                target=self._read_output_utf16,
-                args=(self.current_process.stderr, output_queue, "ERROR: ")
-            )
-            stdout_thread.start()
-            stderr_thread.start()
-
-            while self.current_process.poll() is None or not output_queue.empty():
-                try:
-                    line = output_queue.get(timeout=0.1)
-                    output_lines.append(line)
-                    if self.output_callback:
-                        self.output_callback(line)
-                    if line.startswith("ERROR:"):
-                        error_lines.append(line)
-                except queue.Empty:
-                    continue
-
-            exit_code = self.current_process.wait()
-            stdout_thread.join(timeout=1)
-            stderr_thread.join(timeout=1)
-            while not output_queue.empty():
-                try:
-                    line = output_queue.get_nowait()
-                    output_lines.append(line)
-                    if line.startswith("ERROR:"):
-                        error_lines.append(line)
-                except queue.Empty:
-                    break
-
-            return CommandResult(
-                command=command,
-                exit_code=exit_code,
-                output="\n".join(output_lines),
-                error="\n".join(error_lines)
-            )
-        except Exception as e:
-            error_msg = f"Failed to execute SFC: {str(e)}"
-            if self.output_callback:
-                self.output_callback(f"ERROR: {error_msg}")
-            return CommandResult(command=command, exit_code=-1, output="\n".join(output_lines), error=error_msg)
-        finally:
-            self.is_running = False
-            if self.current_process:
-                try:
-                    self.current_process.terminate()
-                except Exception:
-                    pass
+        return self._execute_streamed_command(command, encoding="utf-16le", shell=shell)
 
 
 class HealthCheckCommands:
