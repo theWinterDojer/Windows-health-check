@@ -489,19 +489,10 @@ This tool provides automated Windows system maintenance and diagnostic capabilit
 
 ════════════════════════════════════════════════════════
 
-🔧 DISM CHECK HEALTH
-Purpose: Quick check for Windows image corruption
-What it does: Scans the Windows component store for any signs of corruption or inconsistencies
-When to use: As a first step to identify potential system image problems
-Time required: 5-10 seconds
-Safe to run: Yes, read-only operation
-
-════════════════════════════════════════════════════════
-
-🔍 DISM SCAN HEALTH  
+🔍 DISM SCAN HEALTH
 Purpose: Deep scan for Windows image corruption
 What it does: Performs a thorough scan of the Windows component store to identify specific corruption issues
-When to use: For comprehensive Windows image diagnostics
+When to use: As the first Windows image diagnostic for most stability issues
 Time required: 2-5 minutes
 Safe to run: Yes, read-only operation
 

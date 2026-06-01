@@ -50,6 +50,9 @@ python main.py
 - **UAC Elevation**: ctypes-based privilege escalation using ShellExecuteW
 - **GUI Framework**: CustomTkinter with Windows 95 retro styling
 
+### Maintenance Notes
+- **Output batching is deferred pending measurement**: preserve the current reliable line-by-line command output streaming unless profiling shows queue-related UI slowdown and regression tests prove output order and completeness.
+
 ### Dependencies
 - `customtkinter`: Modern tkinter replacement
 - `psutil`: System information gathering
