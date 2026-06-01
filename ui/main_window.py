@@ -44,6 +44,7 @@ class MainWindow:
         # Connect run callback
         if run_callback:
             self.tool_selector.set_run_callback(run_callback)
+        self.tool_selector.set_launch_error_callback(self.append_error)
     
     def _get_icon_path(self):
         """Get the path to the icon file, works for both development and packaged executable"""

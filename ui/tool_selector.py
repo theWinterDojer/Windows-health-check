@@ -7,7 +7,7 @@ import customtkinter as ctk
 import tkinter as tk
 import subprocess
 import os
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
 from PIL import Image, ImageTk
 
 
@@ -18,6 +18,7 @@ class ToolSelectorPanel:
         self.parent = parent
         self.checkboxes: Dict[str, ctk.CTkCheckBox] = {}
         self.tool_states: Dict[str, bool] = {}
+        self.launch_error_callback: Optional[Callable[[str], None]] = None
         
         # Define available tools
         self.tools = [
@@ -196,6 +197,10 @@ class ToolSelectorPanel:
     def set_run_callback(self, callback: Callable):
         """Set the callback function for when run is clicked"""
         self.run_callback = callback
+
+    def set_launch_error_callback(self, callback: Callable[[str], None]):
+        """Set the callback function for failed native system tool launches."""
+        self.launch_error_callback = callback
     
     def select_all_tools(self):
         """Select all available tools"""
@@ -369,50 +374,70 @@ class ToolSelectorPanel:
         tools_grid.grid_columnconfigure(0, weight=1)
         tools_grid.grid_columnconfigure(1, weight=1)
     
-    def _open_event_viewer(self):
-        """Open Event Viewer"""
+    def _run_system_tool(self, tool_name: str, command: str) -> bool:
+        """Run a native Windows tool and report launch failures to the UI."""
         try:
-            subprocess.run("eventvwr.exe", shell=True, check=False)
-        except Exception:
-            pass
-    
-    def _open_resource_monitor(self):
-        """Open Resource Monitor"""
-        try:
-            subprocess.run("resmon.exe", shell=True, check=False)
-        except Exception:
-            pass
-    
-    def _open_system_info(self):
-        """Open System Information"""
-        try:
-            subprocess.run("msinfo32.exe", shell=True, check=False)
-        except Exception:
-            pass
-    
-    def _open_memory_diagnostic(self):
-        """Open Windows Memory Diagnostic"""
-        try:
-            subprocess.run("mdsched.exe", shell=True, check=False)
-        except Exception:
-            pass
-    
-    def _open_reliability_history(self):
-        """Open Windows Reliability History"""
-        import subprocess
-        try:
-            # Open Reliability Monitor directly
-            subprocess.run("perfmon.exe /rel", shell=True, check=False)
-        except Exception as e:
-            # Fallback: try opening Control Panel path
+            result = subprocess.run(command, shell=True, check=False)
+            return_code = getattr(result, "returncode", 0)
+            if return_code != 0:
+                raise RuntimeError(f"exit code {return_code}")
+            return True
+        except Exception as exc:
+            self._report_launch_error(tool_name, exc)
+            return False
+
+    def _run_first_available_system_tool(self, tool_name: str, commands: List[str]) -> bool:
+        """Try alternative launch commands and report only if all attempts fail."""
+        last_error = None
+        for command in commands:
             try:
-                subprocess.run("control.exe /name Microsoft.ActionCenter /page pageReliabilityView", shell=True, check=False)
-            except Exception:
-                # Last resort: try direct executable
-                try:
-                    subprocess.run("ReliabilityMonitor.exe", shell=True, check=False)
-                except Exception:
-                    pass  # Silently fail if none work
+                result = subprocess.run(command, shell=True, check=False)
+                return_code = getattr(result, "returncode", 0)
+                if return_code != 0:
+                    raise RuntimeError(f"exit code {return_code}")
+                return True
+            except Exception as exc:
+                last_error = exc
+
+        if last_error is not None:
+            self._report_launch_error(tool_name, last_error)
+        return False
+
+    def _report_launch_error(self, tool_name: str, exc: Exception):
+        """Report a failed system tool launch through the configured callback."""
+        message = f"Failed to open {tool_name}: {exc}"
+        callback = getattr(self, "launch_error_callback", None)
+        if callback:
+            callback(message)
+        else:
+            print(message)
+
+    def _open_event_viewer(self) -> bool:
+        """Open Event Viewer"""
+        return self._run_system_tool("Event Viewer", "eventvwr.exe")
+    
+    def _open_resource_monitor(self) -> bool:
+        """Open Resource Monitor"""
+        return self._run_system_tool("Resource Monitor", "resmon.exe")
+    
+    def _open_system_info(self) -> bool:
+        """Open System Information"""
+        return self._run_system_tool("System Info", "msinfo32.exe")
+    
+    def _open_memory_diagnostic(self) -> bool:
+        """Open Windows Memory Diagnostic"""
+        return self._run_system_tool("Memory Diagnostic", "mdsched.exe")
+    
+    def _open_reliability_history(self) -> bool:
+        """Open Windows Reliability History"""
+        return self._run_first_available_system_tool(
+            "Reliability History",
+            [
+                "perfmon.exe /rel",
+                "control.exe /name Microsoft.ActionCenter /page pageReliabilityView",
+                "ReliabilityMonitor.exe",
+            ],
+        )
     
     def pack(self, **kwargs):
         """Pack the frame"""
