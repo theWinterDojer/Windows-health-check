@@ -9,7 +9,7 @@ import os
 import subprocess
 import threading
 import queue
-from typing import Callable, Optional, List, Tuple
+from typing import Callable, Optional, List
 
 
 class CommandResult:

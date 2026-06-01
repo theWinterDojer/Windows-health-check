@@ -5,13 +5,10 @@ Provides checkboxes for selecting Windows maintenance tools
 
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import PhotoImage
 import subprocess
 import os
-import sys
 from typing import Dict, List, Callable
 from PIL import Image, ImageTk
-import tempfile
 
 
 class ToolSelectorPanel:
@@ -246,7 +243,6 @@ class ToolSelectorPanel:
             import win32gui
             import win32ui
             import win32con
-            import win32api
             
             # Get the icon handle from the executable
             large, small = win32gui.ExtractIconEx(exe_path, 0)

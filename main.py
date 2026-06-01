@@ -107,14 +107,6 @@ class ResultAnalyzer:
                 return {'status': 'success', 'message': 'No integrity violations found', 'icon': '✅'}
             else:
                 return {'status': 'issues_repaired', 'message': 'Integrity violations detected and repaired automatically', 'icon': '🔧'}
-        
-        # Check Disk
-        elif tool_name == "Check Disk":
-            if "windows has scanned the file system and found no problems" in output_lower:
-                return {'status': 'success', 'message': 'No problems found', 'icon': '✅'}
-            else:
-                return {'status': 'issues_detected', 'message': 'Issues detected', 'icon': '⚠️'}
-        
         # Check Disk Fix
         elif tool_name == "Check Disk Fix":
             # If fix completes successfully, consider it a success
@@ -258,11 +250,6 @@ class HealthCheckApp:
             self.base_progress = self.completed_tools / self.total_tools_count
             self.current_tool_progress = 0.0
     
-    def add_dynamic_tool(self):
-        """Add a dynamically triggered tool to the count for progress calculation"""
-        # This helps progress bar account for tools triggered by prompts
-        pass  # The advance_to_next_tool method now handles this automatically
-    
     def start_system_info_updates(self):
         """Start periodic system info updates every 2 seconds"""
         def update_info():
@@ -403,8 +390,6 @@ class HealthCheckApp:
             # Initialize tool counting for progress
             self.total_tools_count = len(self.current_tools)
             
-            total_tools = len(self.current_tools)
-            
             # We'll add a separator after showing the execution plan
             
             # Simple execution - just run tools in the order selected
@@ -414,7 +399,7 @@ class HealthCheckApp:
             self._enqueue_ui("append_output", f"Starting execution of {len(self.current_tools)} diagnostic(s)...", "#00ffff")
             self._enqueue_ui("append_separator")
             
-            for i, tool_id in enumerate(self.current_tools):
+            for tool_id in self.current_tools:
                 # Set up progress simulation for this tool
                 self.advance_to_next_tool()
                 

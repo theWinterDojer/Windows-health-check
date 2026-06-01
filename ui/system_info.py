@@ -52,8 +52,8 @@ class SystemInfoPanel:
                 disk_total_gb = round(disk.total / (1024**3), 1)
                 disk_free_gb = round(disk.free / (1024**3), 1)
                 disk_used_percent = round((disk.used / disk.total) * 100, 1)
-            except:
-                disk_total_gb = disk_free_gb = disk_used_percent = "N/A"
+            except Exception:
+                disk_total_gb = disk_free_gb = disk_used_percent = None
             
             # Get CPU information
             cpu_count = psutil.cpu_count()
@@ -105,13 +105,24 @@ class SystemInfoPanel:
             return f"Error gathering system info: {self.info_data['error']}"
         
         info = self.info_data
+
+        disk_values_available = all(
+            isinstance(info.get(key), (int, float))
+            for key in ("disk_free", "disk_total", "disk_used_percent")
+        )
+        if disk_values_available:
+            disk_line = (
+                f"Disk C: {info['disk_free']:.1f}GB free / {info['disk_total']:.1f}GB total "
+                f"({100-info['disk_used_percent']:.1f}% free)"
+            )
+        else:
+            disk_line = "Disk C: N/A"
         
         return (
             f"OS: {info['os']}\n"
             f"RAM: {info['memory_free']:.1f}GB free / {info['memory_total']:.1f}GB total "
             f"({100-info['memory_used_percent']:.1f}% free)\n"
-            f"Disk C: {info['disk_free']:.1f}GB free / {info['disk_total']:.1f}GB total "
-            f"({100-info['disk_used_percent']:.1f}% free)\n"
+            f"{disk_line}\n"
             f"CPU: {info['cpu_count']} cores ({info['cpu_percent']:.1f}% usage)"
         )
     

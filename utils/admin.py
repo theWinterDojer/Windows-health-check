@@ -5,7 +5,6 @@ Admin privileges and UAC elevation utilities for Windows Health Check Tool
 import ctypes
 import sys
 import os
-from typing import Optional
 
 
 def is_admin() -> bool:
