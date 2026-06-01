@@ -22,6 +22,69 @@ class CommandResult:
         self.success = exit_code == 0
 
 
+CHKDSK_FAILURE_PATTERNS = [
+    "cannot open volume for direct access",
+    "access denied",
+    "is write protected",
+    "unable to determine volume version and state",
+]
+
+CHKDSK_OK_PATTERNS = [
+    "windows has scanned the file system and found no problems",
+    "found no problems",
+    "no problems were found",
+    "found no issues",
+]
+
+CHKDSK_ISSUE_PATTERNS = [
+    "errors found",
+    "found problems",
+    "windows found problems",
+    "file system errors",
+    "has identified one or more errors",
+]
+
+CHKDSK_ISSUE_EXIT_CODES = (1, 2, 3)
+
+
+def analyze_chkdsk_result(result: CommandResult) -> dict:
+    """Analyze CHKDSK results, treating findings as issues not failures."""
+    output_lower = (result.output or "").lower()
+
+    if any(pattern in output_lower for pattern in CHKDSK_FAILURE_PATTERNS):
+        return {
+            "status": "failed",
+            "message": f"Tool execution failed (exit code: {result.exit_code})",
+            "icon": "❌",
+        }
+
+    if any(pattern in output_lower for pattern in CHKDSK_OK_PATTERNS):
+        return {"status": "success", "message": "No problems found", "icon": "✅"}
+
+    if any(pattern in output_lower for pattern in CHKDSK_ISSUE_PATTERNS):
+        return {"status": "issues_detected", "message": "Issues detected", "icon": "⚠️"}
+
+    if result.exit_code in CHKDSK_ISSUE_EXIT_CODES:
+        return {"status": "issues_detected", "message": "Issues detected", "icon": "⚠️"}
+
+    if not result.success:
+        return {
+            "status": "failed",
+            "message": f"Tool execution failed (exit code: {result.exit_code})",
+            "icon": "❌",
+        }
+
+    return {"status": "success", "message": "Completed", "icon": "✅"}
+
+
+def chkdsk_result_needs_fix(check_result: Optional[CommandResult]) -> bool:
+    """Return True when CHKDSK output indicates a repair run should be offered."""
+    if not check_result:
+        return False
+
+    return analyze_chkdsk_result(check_result)["status"] == "issues_detected"
+
+
 class WindowsCommandExecutor:
     """Executes Windows commands with real-time output capture"""
     
@@ -226,48 +289,11 @@ class HealthCheckCommands:
 
     def chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
         """Public helper for CHKDSK fix detection"""
-        return self._chkdsk_needs_fix(check_result)
+        return chkdsk_result_needs_fix(check_result)
     
     def _chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
         """Determine if CHKDSK fix is needed based on check output"""
-        if not check_result:
-            return False
-
-        output_lower = (check_result.output or "").lower()
-
-        # Messages indicating CHKDSK could not complete or access the volume
-        failure_patterns = [
-            "cannot open volume for direct access",
-            "access denied",
-            "is write protected",
-            "unable to determine volume version and state",
-        ]
-        if any(pattern in output_lower for pattern in failure_patterns):
-            return False
-
-        # Common "no issues" messages
-        ok_patterns = [
-            "found no problems",
-            "found no issues",
-            "no problems were found",
-            "windows has scanned the file system and found no problems",
-        ]
-        if any(pattern in output_lower for pattern in ok_patterns):
-            return False
-
-        # Common "issues detected" messages
-        issue_patterns = [
-            "errors found",
-            "found problems",
-            "windows found problems",
-            "file system errors",
-            "has identified one or more errors",
-        ]
-        if any(pattern in output_lower for pattern in issue_patterns):
-            return True
-
-        # Fallback: non-zero exit codes often indicate issues were found
-        return check_result.exit_code in (1, 2, 3)
+        return chkdsk_result_needs_fix(check_result)
 
 
 # Test function for command execution

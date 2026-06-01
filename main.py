@@ -12,7 +12,7 @@ from tkinter import messagebox
 import tkinter as tk
 
 from utils.admin import check_and_elevate, is_admin
-from commands import WindowsCommandExecutor, HealthCheckCommands, CommandResult
+from commands import WindowsCommandExecutor, HealthCheckCommands, CommandResult, analyze_chkdsk_result
 from ui.main_window import MainWindow
 
 
@@ -22,51 +22,7 @@ class ResultAnalyzer:
     @staticmethod
     def _analyze_chkdsk(result: CommandResult) -> dict:
         """Analyze CHKDSK results, treating findings as issues not failures."""
-        output_lower = (result.output or "").lower()
-
-        failure_patterns = [
-            "cannot open volume for direct access",
-            "access denied",
-            "is write protected",
-            "unable to determine volume version and state",
-        ]
-        if any(pattern in output_lower for pattern in failure_patterns):
-            return {
-                'status': 'failed',
-                'message': f"Tool execution failed (exit code: {result.exit_code})",
-                'icon': '❌'
-            }
-
-        ok_patterns = [
-            "windows has scanned the file system and found no problems",
-            "found no problems",
-            "no problems were found",
-            "found no issues",
-        ]
-        if any(pattern in output_lower for pattern in ok_patterns):
-            return {'status': 'success', 'message': 'No problems found', 'icon': '✅'}
-
-        issue_patterns = [
-            "errors found",
-            "found problems",
-            "windows found problems",
-            "file system errors",
-            "has identified one or more errors",
-        ]
-        if any(pattern in output_lower for pattern in issue_patterns):
-            return {'status': 'issues_detected', 'message': 'Issues detected', 'icon': '⚠️'}
-
-        if result.exit_code in (1, 2, 3):
-            return {'status': 'issues_detected', 'message': 'Issues detected', 'icon': '⚠️'}
-
-        if not result.success:
-            return {
-                'status': 'failed',
-                'message': f"Tool execution failed (exit code: {result.exit_code})",
-                'icon': '❌'
-            }
-
-        return {'status': 'success', 'message': 'Completed', 'icon': '✅'}
+        return analyze_chkdsk_result(result)
 
     @staticmethod
     def analyze_tool_result(tool_name: str, result: CommandResult) -> dict:
