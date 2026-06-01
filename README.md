@@ -62,11 +62,16 @@ python main.py
 
 ### Build
 
-Use `build.bat` from Windows for the canonical release build. It uses the root `icon.ico` and creates `dist\Windows Health Check Tool.exe`.
+Use `build.bat` from Windows for the canonical release build. It verifies the required Python packages are installed in the same Python environment used for packaging, uses the root `icon.ico`, bundles CustomTkinter resources, and creates `dist\\Windows Health Check Tool.exe`.
+
+If the dependency preflight fails, run:
+```bash
+python -m pip install -r requirements.txt
+```
 
 Equivalent direct PyInstaller command:
 ```bash
-python -m PyInstaller --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --name "Windows Health Check Tool" main.py
+python -m PyInstaller --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --collect-all customtkinter --name "Windows Health Check Tool" main.py
 ```
 
 ## Project Structure

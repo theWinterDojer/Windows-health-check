@@ -16,6 +16,7 @@ class PackagingConsistencyTests(unittest.TestCase):
         self.assertIn("--name \"Windows Health Check Tool\"", readme)
         self.assertIn("--icon=icon.ico", readme)
         self.assertIn("--add-data \"icon.ico;.\"", readme)
+        self.assertIn("--collect-all customtkinter", readme)
 
     def test_readme_dependencies_match_requirements(self):
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
@@ -39,8 +40,20 @@ class PackagingConsistencyTests(unittest.TestCase):
 
         self.assertIn("--icon=icon.ico", build_script)
         self.assertIn('--add-data "icon.ico;."', build_script)
+        self.assertIn("--collect-all customtkinter", build_script)
+        self.assertIn("python -m pip install -r requirements.txt", build_script)
+        self.assertIn("import customtkinter, psutil, PIL, PyInstaller, win32api", build_script)
         self.assertIn('--name "Windows Health Check Tool"', build_script)
         self.assertIn('dist\\Windows Health Check Tool.exe', build_script)
+
+    def test_spec_collects_customtkinter_resources(self):
+        spec = (REPO_ROOT / "Windows Health Check Tool.spec").read_text(encoding="utf-8")
+
+        self.assertIn("collect_all", spec)
+        self.assertIn("collect_all('customtkinter')", spec)
+        self.assertIn("binaries=customtkinter_binaries", spec)
+        self.assertIn("datas=[('icon.ico', '.')] + customtkinter_datas", spec)
+        self.assertIn("hiddenimports=customtkinter_hiddenimports", spec)
 
 
 if __name__ == "__main__":
