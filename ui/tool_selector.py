@@ -374,26 +374,26 @@ class ToolSelectorPanel:
         tools_grid.grid_columnconfigure(0, weight=1)
         tools_grid.grid_columnconfigure(1, weight=1)
     
-    def _run_system_tool(self, tool_name: str, command: str) -> bool:
-        """Run a native Windows tool and report launch failures to the UI."""
+    def _run_system_tool(self, tool_name: str, command: List[str]) -> bool:
+        """Launch a native Windows tool without blocking the UI."""
         try:
-            result = subprocess.run(command, shell=True, check=False)
-            return_code = getattr(result, "returncode", 0)
-            if return_code != 0:
+            process = subprocess.Popen(command, shell=False)
+            return_code = process.poll()
+            if return_code not in (None, 0):
                 raise RuntimeError(f"exit code {return_code}")
             return True
         except Exception as exc:
             self._report_launch_error(tool_name, exc)
             return False
 
-    def _run_first_available_system_tool(self, tool_name: str, commands: List[str]) -> bool:
+    def _run_first_available_system_tool(self, tool_name: str, commands: List[List[str]]) -> bool:
         """Try alternative launch commands and report only if all attempts fail."""
         last_error = None
         for command in commands:
             try:
-                result = subprocess.run(command, shell=True, check=False)
-                return_code = getattr(result, "returncode", 0)
-                if return_code != 0:
+                process = subprocess.Popen(command, shell=False)
+                return_code = process.poll()
+                if return_code not in (None, 0):
                     raise RuntimeError(f"exit code {return_code}")
                 return True
             except Exception as exc:
@@ -414,28 +414,28 @@ class ToolSelectorPanel:
 
     def _open_event_viewer(self) -> bool:
         """Open Event Viewer"""
-        return self._run_system_tool("Event Viewer", "eventvwr.exe")
+        return self._run_system_tool("Event Viewer", ["eventvwr.exe"])
     
     def _open_resource_monitor(self) -> bool:
         """Open Resource Monitor"""
-        return self._run_system_tool("Resource Monitor", "resmon.exe")
+        return self._run_system_tool("Resource Monitor", ["resmon.exe"])
     
     def _open_system_info(self) -> bool:
         """Open System Information"""
-        return self._run_system_tool("System Info", "msinfo32.exe")
+        return self._run_system_tool("System Info", ["msinfo32.exe"])
     
     def _open_memory_diagnostic(self) -> bool:
         """Open Windows Memory Diagnostic"""
-        return self._run_system_tool("Memory Diagnostic", "mdsched.exe")
+        return self._run_system_tool("Memory Diagnostic", ["mdsched.exe"])
     
     def _open_reliability_history(self) -> bool:
         """Open Windows Reliability History"""
         return self._run_first_available_system_tool(
             "Reliability History",
             [
-                "perfmon.exe /rel",
-                "control.exe /name Microsoft.ActionCenter /page pageReliabilityView",
-                "ReliabilityMonitor.exe",
+                ["perfmon.exe", "/rel"],
+                ["control.exe", "/name", "Microsoft.ActionCenter", "/page", "pageReliabilityView"],
+                ["ReliabilityMonitor.exe"],
             ],
         )
     

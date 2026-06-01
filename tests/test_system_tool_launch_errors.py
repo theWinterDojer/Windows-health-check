@@ -18,18 +18,37 @@ image_tk_stub = sys.modules.setdefault("PIL.ImageTk", types.ModuleType("PIL.Imag
 from ui.tool_selector import ToolSelectorPanel
 
 
+class FakeProcess:
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+
 class SystemToolLaunchErrorTests(unittest.TestCase):
     def make_panel(self):
         panel = object.__new__(ToolSelectorPanel)
         panel.launch_error_callback = None
         return panel
 
+    def test_system_tool_launch_uses_nonblocking_popen_without_shell(self):
+        panel = self.make_panel()
+
+        with patch("ui.tool_selector.subprocess.run") as run_mock, \
+                patch("ui.tool_selector.subprocess.Popen", return_value=FakeProcess()) as popen_mock:
+            launched = panel._open_event_viewer()
+
+        self.assertTrue(launched)
+        run_mock.assert_not_called()
+        popen_mock.assert_called_once_with(["eventvwr.exe"], shell=False)
+
     def test_system_tool_launch_failure_reports_to_callback(self):
         panel = self.make_panel()
         errors = []
         panel.set_launch_error_callback(errors.append)
 
-        with patch("ui.tool_selector.subprocess.run", side_effect=OSError("missing executable")):
+        with patch("ui.tool_selector.subprocess.Popen", side_effect=OSError("missing executable")):
             launched = panel._open_event_viewer()
 
         self.assertFalse(launched)
@@ -42,11 +61,11 @@ class SystemToolLaunchErrorTests(unittest.TestCase):
         errors = []
         panel.set_launch_error_callback(errors.append)
 
-        with patch("ui.tool_selector.subprocess.run", side_effect=OSError("blocked")) as run_mock:
+        with patch("ui.tool_selector.subprocess.Popen", side_effect=OSError("blocked")) as popen_mock:
             launched = panel._open_reliability_history()
 
         self.assertFalse(launched)
-        self.assertEqual(3, run_mock.call_count)
+        self.assertEqual(3, popen_mock.call_count)
         self.assertEqual(1, len(errors))
         self.assertIn("Failed to open Reliability History", errors[0])
         self.assertIn("blocked", errors[0])
@@ -56,25 +75,24 @@ class SystemToolLaunchErrorTests(unittest.TestCase):
         errors = []
         panel.set_launch_error_callback(errors.append)
 
-        def run_side_effect(command, shell, check):
-            if command == "perfmon.exe /rel":
+        def popen_side_effect(command, shell):
+            if command == ["perfmon.exe", "/rel"]:
                 raise OSError("primary unavailable")
-            return types.SimpleNamespace(returncode=0)
+            return FakeProcess()
 
-        with patch("ui.tool_selector.subprocess.run", side_effect=run_side_effect) as run_mock:
+        with patch("ui.tool_selector.subprocess.Popen", side_effect=popen_side_effect) as popen_mock:
             launched = panel._open_reliability_history()
 
         self.assertTrue(launched)
-        self.assertEqual(2, run_mock.call_count)
+        self.assertEqual(2, popen_mock.call_count)
         self.assertEqual([], errors)
 
-    def test_system_tool_nonzero_exit_reports_to_callback(self):
+    def test_system_tool_immediate_nonzero_exit_reports_to_callback(self):
         panel = self.make_panel()
         errors = []
         panel.set_launch_error_callback(errors.append)
 
-        completed = types.SimpleNamespace(returncode=1)
-        with patch("ui.tool_selector.subprocess.run", return_value=completed):
+        with patch("ui.tool_selector.subprocess.Popen", return_value=FakeProcess(returncode=1)):
             launched = panel._open_resource_monitor()
 
         self.assertFalse(launched)
@@ -82,21 +100,21 @@ class SystemToolLaunchErrorTests(unittest.TestCase):
         self.assertIn("Failed to open Resource Monitor", errors[0])
         self.assertIn("exit code 1", errors[0])
 
-    def test_reliability_history_nonzero_primary_attempts_fallback(self):
+    def test_reliability_history_immediate_nonzero_primary_attempts_fallback(self):
         panel = self.make_panel()
         errors = []
         panel.set_launch_error_callback(errors.append)
 
-        def run_side_effect(command, shell, check):
-            if command == "perfmon.exe /rel":
-                return types.SimpleNamespace(returncode=1)
-            return types.SimpleNamespace(returncode=0)
+        def popen_side_effect(command, shell):
+            if command == ["perfmon.exe", "/rel"]:
+                return FakeProcess(returncode=1)
+            return FakeProcess()
 
-        with patch("ui.tool_selector.subprocess.run", side_effect=run_side_effect) as run_mock:
+        with patch("ui.tool_selector.subprocess.Popen", side_effect=popen_side_effect) as popen_mock:
             launched = panel._open_reliability_history()
 
         self.assertTrue(launched)
-        self.assertEqual(2, run_mock.call_count)
+        self.assertEqual(2, popen_mock.call_count)
         self.assertEqual([], errors)
 
 
