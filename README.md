@@ -57,10 +57,16 @@ python main.py
 - `customtkinter`: Modern tkinter replacement
 - `psutil`: System information gathering
 - `pyinstaller`: Executable packaging
+- `pywin32`: Windows API integration
+- `Pillow`: Icon/image handling
 
 ### Build
+
+Use `build.bat` from Windows for the canonical release build. It uses the root `icon.ico` and creates `dist\Windows Health Check Tool.exe`.
+
+Equivalent direct PyInstaller command:
 ```bash
-python -m PyInstaller --onefile --windowed --icon=icon.ico --add-data "icon.ico;." main.py
+python -m PyInstaller --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --name "Windows Health Check Tool" main.py
 ```
 
 ## Project Structure

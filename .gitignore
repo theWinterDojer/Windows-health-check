@@ -195,6 +195,7 @@ plan.md
 build/
 dist/
 *.bat
+!build.bat
 
 # Test output files
 test_results/
