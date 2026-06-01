@@ -4,85 +4,66 @@
 
 **Latest Release**: [Download Latest Version](https://github.com/theWinterDojer/windows-health-check/releases/latest)
 
-GUI-based Windows system maintenance tool with Windows 95-inspired interface for automated diagnostic and repair utilities.
+Windows Health Check Tool is a Windows 10/11 maintenance app with a Windows 95-inspired interface. It provides quick access to common diagnostic and repair tools, shows live command output, and helps guide you through follow-up repair actions when issues are found.
 
 ## Requirements
 
-- Windows 10/11
-- Administrator privileges (automatic UAC elevation)
+- Windows 10 or Windows 11
+- Administrator privileges
+
+The app requests administrator access when needed so Windows maintenance tools can run correctly.
 
 ## Installation
 
-**Standalone Executable**: Download from releases (no installation required)
+Download the latest standalone executable from the [Releases page](https://github.com/theWinterDojer/windows-health-check/releases/latest).
 
-**Development**:
-```bash
-git clone https://github.com/theWinterDojer/windows-health-check.git
-cd windows-health-check
-pip install -r requirements.txt
-python main.py
-```
+No installation is required. Download the executable, run it, and approve the Windows administrator prompt.
 
 ## Features
 
-- **DISM Scan Health**: Component store integrity verification
-- **DISM Restore Health**: Automatic corruption repair (prompted when needed)
-- **System File Checker (SFC)**: System file verification and repair
-- **Check Disk (CHKDSK)**: Optional file system error detection and repair
-- **Windows System Tools**: Direct access to Event Viewer, Resource Monitor, System Information, Memory Diagnostic, and Reliability History with native icons
-- **Real-time System Monitoring**: Live CPU and RAM usage updates every 2 seconds
-- **Real-time Output**: Live command execution with progress tracking
-- **Smart Prompting**: Conditional repair dialogs based on diagnostic results
+- **DISM Scan Health**: Checks the Windows component store for corruption.
+- **DISM Restore Health**: Repairs component store corruption when needed.
+- **System File Checker (SFC)**: Verifies and repairs protected Windows system files.
+- **Check Disk (CHKDSK)**: Checks a selected drive for file system issues and can schedule repairs.
+- **Windows System Tools**: Opens Event Viewer, Resource Monitor, System Information, Windows Memory Diagnostic, and Reliability History.
+- **System Monitoring**: Shows live CPU and memory usage.
+- **Live Output**: Displays diagnostic command output as tools run.
+- **Smart Repair Prompts**: Offers follow-up repair actions when diagnostic output indicates a repair may help.
+- **Export Results**: Saves the displayed diagnostic output to a text file.
 
 ## Usage
 
-1. Launch application (UAC elevation required)
-2. Select diagnostic tools via checkboxes
-3. Click "RUN SELECTED TOOLS"
-4. Monitor real-time output and respond to repair prompts
-5. Export results to text file
+1. Launch Windows Health Check Tool.
+2. Approve the administrator prompt.
+3. Select the diagnostic tools you want to run.
+4. Click **RUN SELECTED TOOLS**.
+5. Watch the live output and respond to any repair prompts.
+6. Export the results if you want to save a record of the run.
 
-## Technical Details
+## Notes
 
-### Architecture
-- **Command Execution**: Thread-safe subprocess management with real-time output capture
-- **Encoding**: UTF-16LE support for Windows tools (SFC compatibility)
-- **UAC Elevation**: ctypes-based privilege escalation using ShellExecuteW
-- **GUI Framework**: CustomTkinter with Windows 95 retro styling
+- Some tools can take several minutes to complete.
+- CHKDSK repairs may require a restart or may be scheduled for the next boot.
+- DISM Restore Health and SFC can modify Windows system files as part of normal repair behavior.
+- If you are unsure what a repair prompt means, review the displayed diagnostic output before continuing.
 
-### Maintenance Notes
-- **Output batching is deferred pending measurement**: preserve the current reliable line-by-line command output streaming unless profiling shows queue-related UI slowdown and regression tests prove output order and completeness.
+## Build From Source
 
-### Dependencies
-- `customtkinter`: Modern tkinter replacement
-- `psutil`: System information gathering
-- `pyinstaller`: Executable packaging
-- `pywin32`: Windows API integration
-- `Pillow`: Icon/image handling
+Most users should use the standalone executable from the Releases page. If you want to build the app yourself, use Windows with Python installed:
 
-### Build
-
-Use `build.bat` from Windows for the canonical release build. It verifies the required Python packages are installed in the same Python environment used for packaging, uses the root `icon.ico`, bundles CustomTkinter resources, and creates `dist\\Windows Health Check Tool.exe`.
-
-If the dependency preflight fails, run:
 ```bash
+git clone https://github.com/theWinterDojer/windows-health-check.git
+cd windows-health-check
+python -m venv .venv
+.venv\Scripts\activate
 python -m pip install -r requirements.txt
+build.bat
 ```
 
-Equivalent direct PyInstaller command:
-```bash
-python -m PyInstaller --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --collect-all customtkinter --name "Windows Health Check Tool" main.py
-```
+The built executable will be created at:
 
-## Project Structure
-
-```
-windows-health-check/
-├── main.py              # Application entry point
-├── commands.py          # Command execution engine
-├── ui/                  # GUI components
-├── utils/               # UAC elevation utilities
-└── requirements.txt     # Dependencies
+```text
+dist\Windows Health Check Tool.exe
 ```
 
 ## License

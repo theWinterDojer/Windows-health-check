@@ -10,22 +10,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 class PackagingConsistencyTests(unittest.TestCase):
     """Keep documented build commands aligned with the Windows build script."""
 
-    def test_readme_pyinstaller_command_matches_named_windows_executable(self):
+    def test_readme_documents_user_facing_source_build_flow(self):
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("--name \"Windows Health Check Tool\"", readme)
-        self.assertIn("--icon=icon.ico", readme)
-        self.assertIn("--add-data \"icon.ico;.\"", readme)
-        self.assertIn("--collect-all customtkinter", readme)
+        self.assertIn("Build From Source", readme)
+        self.assertIn("python -m venv .venv", readme)
+        self.assertIn("python -m pip install -r requirements.txt", readme)
+        self.assertIn("build.bat", readme)
+        self.assertIn("dist\\Windows Health Check Tool.exe", readme)
 
-    def test_readme_dependencies_match_requirements(self):
-        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    def test_requirements_include_packaging_dependencies(self):
         requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
 
         for package in ("customtkinter", "psutil", "pyinstaller", "pywin32", "Pillow"):
             with self.subTest(package=package):
                 self.assertIn(package, requirements)
-                self.assertIn(package, readme)
 
     def test_gitignore_allows_canonical_windows_build_script_but_keeps_spec_ignored(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")

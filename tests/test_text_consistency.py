@@ -18,12 +18,14 @@ class UserFacingTextConsistencyTests(unittest.TestCase):
         self.assertNotIn("DISM Check Health", main_window_source)
         self.assertIn("DISM SCAN HEALTH", main_window_source)
 
-    def test_readme_notes_output_batching_is_deferred_pending_measurement(self):
-        """Do not change reliable command output streaming without evidence and regression tests."""
+    def test_readme_is_user_facing_and_omits_internal_maintenance_notes(self):
+        """Public README should stay evergreen and avoid internal development notes."""
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("Output batching is deferred pending measurement", readme)
-        self.assertIn("line-by-line command output streaming", readme)
+        self.assertIn("Live Output", readme)
+        self.assertIn("Build From Source", readme)
+        self.assertNotIn("Output batching is deferred pending measurement", readme)
+        self.assertNotIn("Maintenance Notes", readme)
 
 
 if __name__ == "__main__":
