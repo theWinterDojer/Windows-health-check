@@ -6,6 +6,7 @@ Handles execution of Windows maintenance commands with real-time output capture
 import codecs
 import locale
 import os
+import re
 import subprocess
 import threading
 import queue
@@ -83,6 +84,18 @@ def chkdsk_result_needs_fix(check_result: Optional[CommandResult]) -> bool:
         return False
 
     return analyze_chkdsk_result(check_result)["status"] == "issues_detected"
+
+
+def normalize_drive_letter(drive: str) -> str:
+    """Validate and normalize a Windows drive letter for CHKDSK commands."""
+    if not isinstance(drive, str):
+        raise ValueError("Drive must be a single letter with optional colon")
+
+    normalized = drive.strip().upper()
+    if not re.fullmatch(r"[A-Z]:?", normalized):
+        raise ValueError("Drive must be a single letter with optional colon")
+
+    return f"{normalized[0]}:"
 
 
 class WindowsCommandExecutor:
@@ -281,11 +294,13 @@ class HealthCheckCommands:
     
     def chkdsk_check(self, drive: str = "c:") -> CommandResult:
         """Run CHKDSK check only"""
-        return self.executor.execute_command(f"chkdsk {drive}")
+        normalized_drive = normalize_drive_letter(drive)
+        return self.executor.execute_command(f"chkdsk {normalized_drive}")
     
     def chkdsk_fix(self, drive: str = "c:") -> CommandResult:
         """Run CHKDSK with fix"""
-        return self.executor.execute_command(f"chkdsk {drive} /f")
+        normalized_drive = normalize_drive_letter(drive)
+        return self.executor.execute_command(f"chkdsk {normalized_drive} /f")
 
     def chkdsk_needs_fix(self, check_result: CommandResult) -> bool:
         """Public helper for CHKDSK fix detection"""
