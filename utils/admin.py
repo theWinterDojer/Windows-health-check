@@ -5,6 +5,27 @@ Admin privileges and UAC elevation utilities for Windows Health Check Tool
 import ctypes
 import sys
 import os
+import subprocess
+import ntpath
+from typing import Optional
+
+
+def build_elevation_command(
+    executable: str,
+    argv: list[str],
+    frozen: bool,
+    script_path: Optional[str] = None,
+) -> tuple[str, str]:
+    """Build Windows-safe executable and argument strings for ShellExecuteW."""
+    if frozen:
+        return executable, subprocess.list2cmdline(argv[1:])
+
+    raw_script_path = script_path or argv[0]
+    if os.path.isabs(raw_script_path) or ntpath.isabs(raw_script_path):
+        resolved_script_path = raw_script_path
+    else:
+        resolved_script_path = os.path.abspath(raw_script_path)
+    return executable, subprocess.list2cmdline([resolved_script_path, *argv[1:]])
 
 
 def is_admin() -> bool:
@@ -31,15 +52,11 @@ def elevate_privileges() -> bool:
         return True
     
     try:
-        if getattr(sys, 'frozen', False):
-            # Running as compiled executable
-            executable = sys.executable
-            arguments = " ".join(sys.argv[1:])
-        else:
-            # Running as Python script - need to launch python.exe with script
-            executable = sys.executable
-            script_path = os.path.abspath(sys.argv[0])
-            arguments = f'"{script_path}" ' + " ".join(sys.argv[1:])
+        executable, arguments = build_elevation_command(
+            executable=sys.executable,
+            argv=sys.argv,
+            frozen=getattr(sys, 'frozen', False),
+        )
         
         # Attempt to run with elevated privileges
         result = ctypes.windll.shell32.ShellExecuteW(
